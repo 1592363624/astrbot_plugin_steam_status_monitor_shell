@@ -839,7 +839,7 @@ class SteamStatusMonitorV2(Star):
             superpower = self.get_today_superpower(steamid)
             print(f"[superpower] test_game_start_render superpower={superpower}")
             img_bytes = await render_game_start(
-                self.data_dir, steamid, player_name, avatar_url, gameid, game_name, api_key=self.API_KEY, superpower=superpower
+                self.data_dir, steamid, player_name, avatar_url, gameid, game_name, api_key=self.API_KEY, superpower=superpower, sgdb_api_key=self.SGDB_API_KEY
             )
             logger.info(f"[测试开始游戏渲染] render_game_start 返回类型: {type(img_bytes)} 长度: {len(img_bytes) if img_bytes else 'None'}")
             if img_bytes:
@@ -902,7 +902,7 @@ class SteamStatusMonitorV2(Star):
                     tip_text = "你已经和椅子合为一体，成为传说中的‘椅子精’了喵！"
             img_bytes = await render_game_end(
                 self.data_dir, steamid, player_name, avatar_url, gameid, game_name,
-                end_time_str, tip_text, duration_h
+                end_time_str, tip_text, duration_h, sgdb_api_key=self.SGDB_API_KEY
             )
             msg = f"👋 {player_name} 不玩 {game_name} 了"
             import tempfile
@@ -1044,7 +1044,7 @@ class SteamStatusMonitorV2(Star):
                     superpower = self.get_today_superpower(sid)
                     online_count = await self.get_game_online_count(current_gameid)
                     img_bytes = await render_game_start(
-                        self.data_dir, sid, name, avatar_url, current_gameid, zh_game_name, api_key=self.API_KEY, superpower=superpower, online_count=online_count
+                        self.data_dir, sid, name, avatar_url, current_gameid, zh_game_name, api_key=self.API_KEY, superpower=superpower, online_count=online_count, sgdb_api_key=self.SGDB_API_KEY
                     )
                     logger.info(f"[开始游戏渲染] render_game_start 返回类型: {type(img_bytes)} 长度: {len(img_bytes) if img_bytes else 'None'}")
                     msg_chain = [Plain(msg)]
@@ -1206,7 +1206,7 @@ class SteamStatusMonitorV2(Star):
                                     tip_text = "你已经和椅子合为一体，成为传说中的‘椅子精’了喵！"
                                 img_bytes = await render_game_end(
                                     self.data_dir, sid, info["name"], avatar_url, gameid, info["game_name"],
-                                    end_time_str, tip_text, duration_h
+                                    end_time_str, tip_text, duration_h, sgdb_api_key=self.SGDB_API_KEY
                                 )
                                 import tempfile
                                 with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
@@ -1276,3 +1276,33 @@ class SteamStatusMonitorV2(Star):
                 lines.append(f"  {name}({sid}) - {state_str}（{poll_str}）")
             lines.append("")
         yield event.plain_result("\n".join(lines))
+
+    @filter.permission_type(filter.PermissionType.ADMIN)
+    @filter.command(".steam test_game_start_render2")
+    async def test_game_start_render2(self, event: AstrMessageEvent, steamid: str, gameid: int, player_name: str = None, avatar_url: str = None):
+        '''测试开始游戏图片渲染（.steam test_game_start_render2 [steamid] [gameid] [玩家名 可选] [头像url 可选]）'''
+        try:
+            # 获取玩家名和头像
+            status = await self.fetch_player_status(steamid)
+            if not player_name:
+                player_name = status.get("name") if status else steamid
+            if not avatar_url:
+                avatar_url = status.get("avatarfull") or status.get("avatar") or "" if status else ""
+            game_name = await self.get_chinese_game_name(gameid)
+            superpower = self.get_today_superpower(steamid)
+            img_bytes = await render_game_start(
+                self.data_dir, steamid, player_name, avatar_url, gameid, game_name,
+                api_key=self.API_KEY, superpower=superpower, sgdb_api_key=self.SGDB_API_KEY
+            )
+            if img_bytes:
+                import tempfile
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
+                    tmp.write(img_bytes)
+                    tmp_path = tmp.name
+                yield event.image_result(tmp_path)
+            else:
+                yield event.plain_result("渲染失败，未获取到图片数据。")
+        except Exception as e:
+            import traceback
+            logger.error(f"测试开始游戏图片渲染失败: {e}\n{traceback.format_exc()}")
+            yield event.plain_result(f"渲染异常: {e}")

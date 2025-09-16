@@ -57,6 +57,9 @@ async def get_sgdb_vertical_cover(game_name, sgdb_api_key=None):
             return None
 
 async def get_cover_path(data_dir, gameid, game_name, force_update=False, sgdb_api_key=None):
+    from PIL import Image as PILImage
+    from io import BytesIO
+    import httpx
     cover_dir = os.path.join(data_dir, "covers_v")
     os.makedirs(cover_dir, exist_ok=True)
     path = os.path.join(cover_dir, f"{gameid}.jpg")
@@ -67,7 +70,6 @@ async def get_cover_path(data_dir, gameid, game_name, force_update=False, sgdb_a
     url = await get_sgdb_vertical_cover(game_name, sgdb_api_key)
     if url:
         try:
-            import httpx
             resp = httpx.get(url, timeout=10)
             if resp.status_code == 200:
                 with open(path, "wb") as f:
@@ -75,25 +77,45 @@ async def get_cover_path(data_dir, gameid, game_name, force_update=False, sgdb_a
                 return path
         except Exception as e:
             print(f"[get_cover_path] SGDB下载异常: {e} url={url}")
-    # 2. fallback: 官方header_image/capsule_image
+    # 2. fallback: 官方 capsule_600x900（竖版）优先，其次 header_image（横版）
     try:
-        import httpx
         store_url = f"https://store.steampowered.com/api/appdetails?appids={gameid}&l=schinese"
         resp = httpx.get(store_url, timeout=10)
         data = resp.json()
         info = data.get(str(gameid), {}).get("data", {})
+        # 先尝试 capsule_600x900
+        capsule_img = info.get("capsule_image")
+        if not capsule_img:
+            # 兼容部分API未返回 capsule_image 字段
+            header_img = info.get("header_image")
+            if header_img:
+                capsule_img = header_img.replace("_header.jpg", "_capsule_600x900.jpg")
+        if capsule_img:
+            img_resp = httpx.get(capsule_img, timeout=10)
+            if img_resp.status_code == 200:
+                img = PILImage.open(BytesIO(img_resp.content)).convert("RGB")
+                # 只缩放高度为900，宽度等比例缩放
+                scale = 900 / img.height
+                new_w = int(img.width * scale)
+                new_h = 900
+                img = img.resize((new_w, new_h), PILImage.LANCZOS)
+                img.save(path)
+                return path
+        # fallback: header_image 横版
         header_img = info.get("header_image")
         if header_img:
             img_resp = httpx.get(header_img, timeout=10)
             if img_resp.status_code == 200:
-                from PIL import Image as PILImage
-                from io import BytesIO
                 img = PILImage.open(BytesIO(img_resp.content)).convert("RGB")
-                img = img.resize((600, 900), PILImage.LANCZOS)
+                # 只缩放高度为900，宽度等比例缩放
+                scale = 900 / img.height
+                new_w = int(img.width * scale)
+                new_h = 900
+                img = img.resize((new_w, new_h), PILImage.LANCZOS)
                 img.save(path)
                 return path
     except Exception as e:
-        print(f"[get_cover_path] fallback header_image异常: {e}")
+        print(f"[get_cover_path] fallback capsule/header_image异常: {e}")
     print(f"[get_cover_path] 封面获取失败: {gameid} {game_name}")
     return path if os.path.exists(path) else None
 
@@ -225,57 +247,44 @@ def render_game_start_image(player_name, avatar_path, game_name, cover_path, pla
 
     # 头像渲染（只保留一次）
     if avatar_path and os.path.exists(avatar_path):
-        avatar = Image.open(avatar_path).convert("RGB").resize((avatar_size, avatar_size))
-        # 圆角矩形遮罩
-        mask = Image.new("L", (avatar_size, avatar_size), 0)
-        draw_mask = ImageDraw.Draw(mask)
-        draw_mask.rounded_rectangle((0, 0, avatar_size, avatar_size), radius=avatar_size//5, fill=255)
-        # 随机颜色描边
-        border_color = tuple(random.randint(80, 255) for _ in range(3))
-        border_width = 6
-        # 先画描边
-        border_img = Image.new("RGBA", (avatar_size + border_width*2, avatar_size + border_width*2), (0,0,0,0))
-        border_draw = ImageDraw.Draw(border_img)
-        border_draw.rounded_rectangle(
-            (0, 0, avatar_size + border_width*2 - 1, avatar_size + border_width*2 - 1),
-            radius=(avatar_size + border_width*2)//5,
-            fill=border_color
-        )
-        # 再贴头像
-        avatar_rgba = avatar.convert("RGBA")
-        border_img.paste(avatar_rgba, (border_width, border_width), mask)
-        img.alpha_composite(border_img, (avatar_x - border_width, avatar_y - border_width))
-        print(f"[render_game_start_image] superpower参数: {superpower}")
-        if superpower:
-            try:
-                font_power_title = ImageFont.truetype("msyh.ttc", 16)
-                font_power = ImageFont.truetype("msyh.ttc", 18)
-            except:
-                font_power_title = font_power = ImageFont.load_default()
-            power_x = avatar_x + avatar_size // 2
-            power_y = avatar_y + avatar_size + 8
-            # 手动计算文本宽度实现居中
-            title_text = "今天的超能力"
-            ability_text = superpower
-            # 计算文本宽度
-            title_bbox = draw.textbbox((0, 0), title_text, font=font_power_title)
-            title_w = title_bbox[2] - title_bbox[0]
-            title_h = title_bbox[3] - title_bbox[1]
-            ability_bbox = draw.textbbox((0, 0), ability_text, font=font_power)
-            ability_w = ability_bbox[2] - ability_bbox[0]
-            ability_h = ability_bbox[3] - ability_bbox[1]
-            # 半透明颜色（白色和淡蓝灰，alpha=128）
-            title_color = (255, 255, 255, 128)      # 半透明白
-            ability_color = (120, 180, 255, 128)    # 半透明淡蓝
-            # 居中绘制
-            draw.text(
-                (avatar_x + (avatar_size - title_w) // 2, power_y),
-                title_text, font=font_power_title, fill=title_color
-            )
-            draw.text(
-                (avatar_x + (avatar_size - ability_w) // 2, power_y + title_h + 2),
-                ability_text, font=font_power, fill=ability_color
-            )
+        try:
+            avatar = Image.open(avatar_path).convert("RGBA").resize((AVATAR_SIZE, AVATAR_SIZE))
+            # 圆角遮罩
+            mask = Image.new("L", (AVATAR_SIZE, AVATAR_SIZE), 0)
+            draw_mask = ImageDraw.Draw(mask)
+            draw_mask.rounded_rectangle((0, 0, AVATAR_SIZE, AVATAR_SIZE), radius=AVATAR_SIZE//5, fill=255)
+            avatar_rgba = avatar.copy()
+            avatar_rgba.putalpha(mask)
+            img.alpha_composite(avatar_rgba, (avatar_x, avatar_y))
+            # 超能力文本渲染（头像下方居中两行）
+            if superpower:
+                try:
+                    font_power_title = ImageFont.truetype("msyh.ttc", 16)
+                    font_power = ImageFont.truetype("msyh.ttc", 18)
+                except:
+                    font_power_title = font_power = ImageFont.load_default()
+                power_x = avatar_x + AVATAR_SIZE // 2
+                power_y = avatar_y + AVATAR_SIZE + 8
+                title_text = "今天的超能力"
+                ability_text = superpower
+                title_bbox = draw.textbbox((0, 0), title_text, font=font_power_title)
+                title_w = title_bbox[2] - title_bbox[0]
+                title_h = title_bbox[3] - title_bbox[1]
+                ability_bbox = draw.textbbox((0, 0), ability_text, font=font_power)
+                ability_w = ability_bbox[2] - ability_bbox[0]
+                ability_h = ability_bbox[3] - ability_bbox[1]
+                title_color = (255, 255, 255, 128)
+                ability_color = (120, 180, 255, 128)
+                draw.text(
+                    (avatar_x + (AVATAR_SIZE - title_w) // 2, power_y),
+                    title_text, font=font_power_title, fill=title_color
+                )
+                draw.text(
+                    (avatar_x + (AVATAR_SIZE - ability_w) // 2, power_y + title_h + 2),
+                    ability_text, font=font_power, fill=ability_color
+                )
+        except Exception as e:
+            print(f"[render_game_start_image] 头像/超能力渲染失败: {e}")
 
     # 玩家名自适应字号，防止出界
     max_playername_w = IMG_W - (text_x + 8) - 24

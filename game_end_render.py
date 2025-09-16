@@ -18,8 +18,10 @@ STAR_BG_PATH = os.path.join(os.path.dirname(__file__), "随机散布的小星星
 
 SGDB_API_KEY = "00c703ea9a664ce236526aca0faeaaf4"
 
-async def get_sgdb_vertical_cover(game_name):
-    headers = {"Authorization": f"Bearer {SGDB_API_KEY}"}
+async def get_sgdb_vertical_cover(game_name, sgdb_api_key=None):
+    if not sgdb_api_key:
+        return None
+    headers = {"Authorization": f"Bearer {sgdb_api_key}"}
     search_url = f"https://www.steamgriddb.com/api/v2/search/autocomplete/{game_name}"
     async with httpx.AsyncClient(timeout=10) as client:
         try:
@@ -78,7 +80,7 @@ def render_gradient_bg(img_w, img_h, color_top, color_bottom):
     return base
 
 # get_cover_path 改为 async def 并 await get_sgdb_vertical_cover
-async def get_cover_path(data_dir, gameid, game_name, force_update=False):
+async def get_cover_path(data_dir, gameid, game_name, force_update=False, sgdb_api_key=None):
     from PIL import Image as PILImage
     from io import BytesIO
     import httpx
@@ -89,7 +91,7 @@ async def get_cover_path(data_dir, gameid, game_name, force_update=False):
     if os.path.exists(path):
         return path
     # 1. SGDB优先
-    url = await get_sgdb_vertical_cover(game_name)
+    url = await get_sgdb_vertical_cover(game_name, sgdb_api_key)
     if url:
         try:
             resp = httpx.get(url, timeout=10)
@@ -99,22 +101,45 @@ async def get_cover_path(data_dir, gameid, game_name, force_update=False):
                 return path
         except Exception as e:
             print(f"[get_cover_path] SGDB下载异常: {e} url={url}")
-    # 2. fallback: 官方header_image/capsule_image
+    # 2. fallback: 官方 capsule_600x900（竖版）优先，其次 header_image（横版）
     try:
         store_url = f"https://store.steampowered.com/api/appdetails?appids={gameid}&l=schinese"
         resp = httpx.get(store_url, timeout=10)
         data = resp.json()
         info = data.get(str(gameid), {}).get("data", {})
+        # 先尝试 capsule_600x900
+        capsule_img = info.get("capsule_image")
+        if not capsule_img:
+            # 兼容部分API未返回 capsule_image 字段
+            header_img = info.get("header_image")
+            if header_img:
+                capsule_img = header_img.replace("_header.jpg", "_capsule_600x900.jpg")
+        if capsule_img:
+            img_resp = httpx.get(capsule_img, timeout=10)
+            if img_resp.status_code == 200:
+                img = PILImage.open(BytesIO(img_resp.content)).convert("RGB")
+                # 只缩放高度为900，宽度等比例缩放
+                scale = 900 / img.height
+                new_w = int(img.width * scale)
+                new_h = 900
+                img = img.resize((new_w, new_h), PILImage.LANCZOS)
+                img.save(path)
+                return path
+        # fallback: header_image 横版
         header_img = info.get("header_image")
         if header_img:
             img_resp = httpx.get(header_img, timeout=10)
             if img_resp.status_code == 200:
                 img = PILImage.open(BytesIO(img_resp.content)).convert("RGB")
-                img = img.resize((600, 900), PILImage.LANCZOS)
+                # 只缩放高度为900，宽度等比例缩放
+                scale = 900 / img.height
+                new_w = int(img.width * scale)
+                new_h = 900
+                img = img.resize((new_w, new_h), PILImage.LANCZOS)
                 img.save(path)
                 return path
     except Exception as e:
-        print(f"[get_cover_path] fallback header_image异常: {e}")
+        print(f"[get_cover_path] fallback capsule/header_image异常: {e}")
     print(f"[get_cover_path] 封面获取失败: {gameid} {game_name}")
     return path if os.path.exists(path) else None
 
@@ -325,9 +350,9 @@ def render_game_end_image(player_name, avatar_path, game_name, cover_path, end_t
     return img.convert("RGB")
 
 # render_game_end 里 await get_cover_path
-async def render_game_end(data_dir, steamid, player_name, avatar_url, gameid, game_name, end_time_str, tip_text, duration_h):
+async def render_game_end(data_dir, steamid, player_name, avatar_url, gameid, game_name, end_time_str, tip_text, duration_h, sgdb_api_key=None):
     avatar_path = get_avatar_path(data_dir, steamid, avatar_url)
-    cover_path = await get_cover_path(data_dir, gameid, game_name)
+    cover_path = await get_cover_path(data_dir, gameid, game_name, sgdb_api_key=sgdb_api_key)
     img = render_game_end_image(player_name, avatar_path, game_name, cover_path, end_time_str, tip_text, duration_h)
     buf = io.BytesIO()
     img.save(buf, format="PNG")
