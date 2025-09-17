@@ -1,24 +1,17 @@
 # Steam 状态监控插件V2
 
-本插件用于定时轮询 Steam Web API，监控指定玩家的在线/离线/游戏状态变更，并在状态变化时推送通知。支持多 SteamID 监控，自动记录游玩日志，支持群聊分组，数据持久化，支持丰富指令。
-
+本插件是专为AstrBot设计的插件，用于定时轮询 Steam Web API，监控指定玩家的在线/离线/游戏状态变更，并在状态变化时推送通知。支持多 SteamID 监控，自动记录游玩日志，支持群聊分组，数据持久化，支持丰富指令。
+适用于AstrBot v3.5 或以上版本（可能不适用V4.0）
 ## 功能特性
-- 支持定时轮询多个 SteamID 的状态，分群管理
-- 支持分群通知，群聊可独立配置监控玩家
+- 支持定时轮询多个 SteamID 的状态，分群管理，每个群聊可独立配置监控玩家
 - 检测玩家上线、下线、开始/切换/退出游戏等状态变更，自动推送游戏启动/关闭提醒
 - 成就变动自动推送提醒
-- 已配置自定义轮询频率，长久不在线的玩家最多30分钟查询一次状态
-- 状态变更时自动生成并推送通知文本
-- 自动获取游戏中文名（优先），无则回退英文名
-- 记录玩家游玩日志（支持断线重连、继续游玩等情况的合并）
-- 支持通过指令动态增删 SteamID、调整配置参数
-- 支持查询玩家详细信息、导出游玩记录
-- 插件数据持久化，重启后状态不丢失
-- 支持成就推送、图片渲染、超能力趣味功能
+- 已配置自动轮询频率，默认为1-30分钟查询一次状态，取决于steam的上次在线时间
+- 持久化记录玩家游玩日志，重启bot后状态不会丢失
 
 ## 快速上手
-1. 在AstrBot网页后台的配置中配置 Steam_Web_API_Key：https://steamcommunity.com/dev/apikey
-2. 在AstrBot网页后台的配置中配置 SGDB_API_KEY（可选）：用于获取更丰富的游戏封面图，可在 https://www.steamgriddb.com/profile/preferences/api 
+1. 在AstrBot网页后台的配置中配置 Steam_Web_API_Key：[点击获取](https://steamcommunity.com/dev/apikey)
+2. 在AstrBot网页后台的配置中配置 SGDB_API_KEY（用于获取封面图，可选）：[点击获取](https://www.steamgriddb.com/profile/preferences/api)
 3. 在需要进行提醒的群聊输入指令：
    `/steam addid [Steam64位ID]`  （如：/steam addid 7656119xxxxxxxxxx）
 4. 启动轮询：
@@ -28,9 +21,9 @@
 - 获取速度与是否成功获取 Steam 数据取决于网络环境。建议通过加速或魔法手段来保证稳定的查询状态。
 
 ## 演示截图
-![开始游戏示例](str.jpg)
-![结束游戏示例](stop.jpg)
-![成就推送示例](achievement.jpg)
+![开始游戏示例](https://raw.githubusercontent.com/Maoer233/astrbot_plugin_steam_status_monitor/main/str.png)
+![结束游戏示例](https://raw.githubusercontent.com/Maoer233/astrbot_plugin_steam_status_monitor/main/stop.png)
+![成就推送示例](https://raw.githubusercontent.com/Maoer233/astrbot_plugin_steam_status_monitor/main/achievement.png)
 
 
 ## 指令列表
@@ -64,8 +57,8 @@
 - AstrBot 框架
 
 ### 依赖安装方法
+如果显示缺少依赖，你可以尝试下载以下工具来进行修复
 pip install httpx pillow
 
-AstrBot版本： v3.5.13
-
+欢迎添加QQ：1912584909 来反馈功能和建议~闲聊也欢迎喵~
 
