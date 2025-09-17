@@ -1,7 +1,7 @@
 # Steam 状态监控插件V2
 
-##访问统计
-## <a href="https://count.getloli.com/"><img src="https://count.getloli.com/get/@:astrbot_plugin_steam_status_monitor?theme=rule34"></a>
+## 访问统计
+![访问统计](https://count.getloli.com/get/@astrbot_ssm?theme=rule34)
 
 本插件是专为AstrBot设计的插件，用于定时轮询 Steam Web API，监控指定玩家的在线/离线/游戏状态变更，并在状态变化时推送通知。支持多 SteamID 监控，自动记录游玩日志，支持群聊分组，数据持久化，支持丰富指令。
 适用于AstrBot v3.5 或以上版本（可能不适用V4.0）
