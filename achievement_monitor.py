@@ -241,7 +241,7 @@ class AchievementMonitor:
             lines.append(line)
         return lines
 
-    async def render_achievement_image(self, achievement_details: dict, new_achievements: set, player_name: str = "", steamid: str = None, appid: int = None, unlocked_set: set = None) -> bytes:
+    async def render_achievement_image(self, achievement_details: dict, new_achievements: set, player_name: str = "", steamid: str = None, appid: int = None, unlocked_set: set = None, font_path=None) -> bytes:
         # 风格化：圆角卡片、icon透明、自动换行、无表情符号、官方风格进度条
         width = 420
         padding_v = 18
@@ -256,13 +256,20 @@ class AchievementMonitor:
         text_margin_top = 10
         max_text_width = width - padding_h * 2 - icon_size - icon_margin_right - 18
 
-        # 字体
+        # 字体路径
+        fonts_dir = os.path.join(os.path.dirname(__file__), 'fonts')
+        font_regular = os.path.join(fonts_dir, 'NotoSansHans-Regular.otf')
+        font_medium = os.path.join(fonts_dir, 'NotoSansHans-Medium.otf')
+        if not os.path.exists(font_regular):
+            font_regular = os.path.join(os.path.dirname(__file__), 'NotoSansHans-Regular.otf')
+        if not os.path.exists(font_medium):
+            font_medium = os.path.join(os.path.dirname(__file__), 'NotoSansHans-Medium.otf')
         try:
-            font_title = ImageFont.truetype("msyhbd.ttc", 20)
-            font_game = ImageFont.truetype("msyh.ttc", 15)
-            font_name = ImageFont.truetype("msyhbd.ttc", 16)
-            font_desc = ImageFont.truetype("msyh.ttc", 13)
-            font_percent = ImageFont.truetype("msyh.ttc", 12)
+            font_title = ImageFont.truetype(font_medium, 20)
+            font_game = ImageFont.truetype(font_regular, 15)
+            font_name = ImageFont.truetype(font_medium, 16)
+            font_desc = ImageFont.truetype(font_regular, 13)
+            font_percent = ImageFont.truetype(font_regular, 12)
         except Exception:
             font_title = font_game = font_name = font_desc = font_percent = ImageFont.load_default()
 

@@ -203,15 +203,33 @@ def draw_duration_bar(draw, x, y, width, height, duration_h):
                 center_y = y + height // 2 - text_h // 2 - 5
                 draw.text((center_x, center_y), text, font=font, fill=color, stroke_width=2, stroke_fill=(0,0,0,180))
 
-def render_game_end_image(player_name, avatar_path, game_name, cover_path, end_time_str, tip_text, duration_h):
+def get_font_path(font_name):
+    fonts_dir = os.path.join(os.path.dirname(__file__), 'fonts')
+    font_path = os.path.join(fonts_dir, font_name)
+    if (os.path.exists(font_path)):
+        return font_path
+    font_path2 = os.path.join(os.path.dirname(__file__), font_name)
+    if (os.path.exists(font_path2)):
+        return font_path2
+    return font_name
+
+def render_game_end_image(player_name, avatar_path, game_name, cover_path, end_time_str, tip_text, duration_h, font_path=None):
     # 字体
+    fonts_dir = os.path.join(os.path.dirname(__file__), 'fonts')
+    font_regular = os.path.join(fonts_dir, 'NotoSansHans-Regular.otf')
+    font_medium = os.path.join(fonts_dir, 'NotoSansHans-Medium.otf')
+    if not os.path.exists(font_regular):
+        font_regular = os.path.join(os.path.dirname(__file__), 'NotoSansHans-Regular.otf')
+    if not os.path.exists(font_medium):
+        font_medium = os.path.join(os.path.dirname(__file__), 'NotoSansHans-Medium.otf')
     try:
-        font_bold = ImageFont.truetype("msyhbd.ttc", 28)
-        font = ImageFont.truetype("msyh.ttc", 22)
-        font_small = ImageFont.truetype("msyh.ttc", 16)
-        font_tip = ImageFont.truetype("msyh.ttc", 16)
+        font_title = ImageFont.truetype(font_medium, 28)
+        font_game = ImageFont.truetype(font_regular, 22)
+        font_tip = ImageFont.truetype(font_regular, 16)
+        font_luck = ImageFont.truetype(font_regular, 14)
+        font_time = ImageFont.truetype(font_regular, 8)
     except:
-        font_bold = font = font_small = font_tip = ImageFont.load_default()
+        font_title = font_game = font_tip = font_luck = font_time = ImageFont.load_default()
 
     img = render_gradient_bg(IMG_W, IMG_H, BG_COLOR_TOP, BG_COLOR_BOTTOM).convert("RGBA")
     draw = ImageDraw.Draw(img)
@@ -274,10 +292,6 @@ def render_game_end_image(player_name, avatar_path, game_name, cover_path, end_t
     luck_seed = f"{player_name}_{today}".encode("utf-8")
     today_luck = int(hashlib.md5(luck_seed).hexdigest(), 16) % 101
     luck_text = f"今日人品：{today_luck}"
-    try:
-        font_luck = ImageFont.truetype("msyh.ttc", 12)
-    except:
-        font_luck = ImageFont.load_default()
     luck_font_y = avatar_y + AVATAR_SIZE + 8
     draw.text((avatar_x, luck_font_y), luck_text, font=font_luck, fill=(200,220,255,220), stroke_width=1, stroke_fill=(0,0,0,255))
 
@@ -288,11 +302,6 @@ def render_game_end_image(player_name, avatar_path, game_name, cover_path, end_t
         time_str = t.strftime("%H:%M")
     except Exception:
         time_str = end_time_str[-5:]
-    time_font_size = 8
-    try:
-        font_time = ImageFont.truetype("msyhbd.ttc", time_font_size)
-    except:
-        font_time = ImageFont.load_default()
     bbox = draw.textbbox((0,0), time_str, font=font_time, stroke_width=2)
     time_x = IMG_W - bbox[2] + bbox[0] - 18  # 右上角，留边距
     time_y = 6
@@ -305,7 +314,7 @@ def render_game_end_image(player_name, avatar_path, game_name, cover_path, end_t
     title_font_size = 28
     for size in range(28, 15, -2):
         try:
-            font_title_tmp = ImageFont.truetype("msyhbd.ttc", size)
+            font_title_tmp = ImageFont.truetype(font_medium, size)
         except:
             font_title_tmp = ImageFont.load_default()
         bbox = draw.textbbox((0, 0), title_text, font=font_title_tmp)
@@ -313,16 +322,12 @@ def render_game_end_image(player_name, avatar_path, game_name, cover_path, end_t
             title_font_size = size
             break
     try:
-        font_title = ImageFont.truetype("msyhbd.ttc", title_font_size)
+        font_title = ImageFont.truetype(font_medium, title_font_size)
     except:
         font_title = ImageFont.load_default()
     draw.text((avatar_x + AVATAR_SIZE + 20, 16), title_text, font=font_title, fill=(180,160,255,255), stroke_width=2, stroke_fill=(0,0,0,255))
 
     # 5. 游戏名，头像右侧居左，第二行
-    try:
-        font_game = ImageFont.truetype("msyh.ttc", 22)
-    except:
-        font_game = font_title
     game_name_y = 16 + font_title.size + 8
     draw.text((avatar_x + AVATAR_SIZE + 20, game_name_y), game_name, font=font_game, fill=(220,220,255,255), stroke_width=2, stroke_fill=(0,0,0,255))
 
@@ -350,10 +355,10 @@ def render_game_end_image(player_name, avatar_path, game_name, cover_path, end_t
     return img.convert("RGB")
 
 # render_game_end 里 await get_cover_path
-async def render_game_end(data_dir, steamid, player_name, avatar_url, gameid, game_name, end_time_str, tip_text, duration_h, sgdb_api_key=None):
+async def render_game_end(data_dir, steamid, player_name, avatar_url, gameid, game_name, end_time_str, tip_text, duration_h, sgdb_api_key=None, font_path=None):
     avatar_path = get_avatar_path(data_dir, steamid, avatar_url)
     cover_path = await get_cover_path(data_dir, gameid, game_name, sgdb_api_key=sgdb_api_key)
-    img = render_game_end_image(player_name, avatar_path, game_name, cover_path, end_time_str, tip_text, duration_h)
+    img = render_game_end_image(player_name, avatar_path, game_name, cover_path, end_time_str, tip_text, duration_h, font_path=font_path)
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     buf.seek(0)

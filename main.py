@@ -27,8 +27,8 @@ from .superpower_util import load_abilities, get_daily_superpower  # 新增导�
     "steam_status_monitor_V2",
     "Maoer",
     "Steam状态监控插件V2版",
-    "2.0.0",
-    "https://github.com/Maoer233/steam_status_monitor_V2"
+    "2.1.3",
+    "https://github.com/Maoer233/astrbot_plugin_steam_status_monitor"
 )
 class SteamStatusMonitorV2(Star):
     def _get_group_data_path(self, group_id, key):
@@ -143,8 +143,71 @@ class SteamStatusMonitorV2(Star):
             except Exception as e:
                 logger.warning(f"保存 notify_sessions 失败: {e}")
 
+    def _ensure_fonts(self):
+        """检测插件fonts目录是否有NotoSansHans系列字体，有则复制到缓存目录并缓存路径"""
+        plugin_fonts_dir = os.path.join(os.path.dirname(__file__), 'fonts')
+        cache_fonts_dir = os.path.join('data', 'steam_status_monitor', 'fonts')
+        os.makedirs(plugin_fonts_dir, exist_ok=True)
+        os.makedirs(cache_fonts_dir, exist_ok=True)
+        font_candidates = [
+            'NotoSansHans-Regular.otf',
+            'NotoSansHans-Medium.otf'
+        ]
+        self.font_paths = {}
+        for font_name in font_candidates:
+            plugin_font_path = os.path.join(plugin_fonts_dir, font_name)
+            cache_font_path = os.path.join(cache_fonts_dir, font_name)
+            if os.path.exists(plugin_font_path):
+                shutil.copy(plugin_font_path, cache_font_path)
+                self.font_paths[font_name] = cache_font_path
+            elif os.path.exists(cache_font_path):
+                self.font_paths[font_name] = cache_font_path
+            else:
+                self.font_paths[font_name] = None
+        # 详细日志
+        for font_name in font_candidates:
+            logger.info(f"[Font] {font_name} 路径: {self.font_paths.get(font_name)}")
+        if not all(self.font_paths.values()):
+            logger.warning("[Font] 未检测到全部NotoSansHans字体，渲染可能会出现乱码！")
+
+    def get_font_path(self, font_name=None, bold=False):
+        """优先返回缓存fonts目录下NotoSansHans字体路径"""
+        if not font_name:
+            font_name = 'NotoSansHans-Regular.otf'
+        if bold:
+            font_name = 'NotoSansHans-Medium.otf'
+        return self.font_paths.get(font_name) or font_name
+
+    def _get_groups_file_path(self):
+        """获取 steam_groups.json 文件路径"""
+        return os.path.join(self.data_dir, "steam_groups.json")
+
+    def _load_group_steam_ids(self):
+        """从 steam_groups.json 加载所有群的 SteamID 列表"""
+        path = self._get_groups_file_path()
+        if os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    self.group_steam_ids = json.load(f)
+                logger.info(f"[SteamStatusMonitor] 已加载 steam_groups.json: {self.group_steam_ids}")
+            except Exception as e:
+                logger.warning(f"加载 steam_groups.json 失败: {e}")
+        else:
+            self.group_steam_ids = {}
+
+    def _save_group_steam_ids(self):
+        """保存所有群的 SteamID 列表到 steam_groups.json"""
+        path = self._get_groups_file_path()
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(self.group_steam_ids, f, ensure_ascii=False, indent=2)
+            logger.info(f"[SteamStatusMonitor] 已保存 steam_groups.json: {self.group_steam_ids}")
+        except Exception as e:
+            logger.warning(f"保存 steam_groups.json 失败: {e}")
+
     def __init__(self, context: Context, config=None):
         super().__init__(context)
+        self._ensure_fonts()  # 插件启动时自动检测/下载字体
         self.context = context
         # 分群管理：所有状态数据均以 group_id 为 key
         self.group_steam_ids = {}         # {group_id: [steamid, ...]}
@@ -192,6 +255,7 @@ class SteamStatusMonitorV2(Star):
         # 数据持久化目录
         self.data_dir = os.path.join("data", "steam_status_monitor")
         os.makedirs(self.data_dir, exist_ok=True)
+        self._load_group_steam_ids()  # 新增：优先从 steam_groups.json 加载
         self._load_persistent_data()
         self._load_notify_session()
         # 成就监控
@@ -313,7 +377,7 @@ class SteamStatusMonitorV2(Star):
         if coords.size == 0:
             return img
         y0, x0 = coords.min(axis=0)
-        y1, x1 = coords.max(axis(0)) + 1
+        y1, x1 = coords.max(axis=0) + 1
         # 防止裁剪过度，留出2px边距
         y0 = max(y0 - 0, 0)
         x0 = max(x0 - 0, 0)
@@ -491,6 +555,10 @@ class SteamStatusMonitorV2(Star):
                         self.achievement_blacklist.add(gameid)
                         logger.info(f"[成就黑名单] 游戏 {gameid} 多次获取失败，已加入黑名单")
                         break
+                    continue
+                # 修正：补充新成就检测逻辑
+                if achievements_a is not None and achievements_b is not None:
+                    new_achievements = set(achievements_b) - set(achievements_a)
                     if new_achievements:
                         logger.info(f"[成就定时对比] {player_name} 在 {game_name} 解锁新成就：{', '.join(new_achievements)}")
                         await self.notify_new_achievements(group_id, sid, player_name, gameid, game_name, new_achievements)
@@ -552,6 +620,7 @@ class SteamStatusMonitorV2(Star):
         if details and game_name:
             for d in details.values():
                 d["game_name"] = game_name
+        font_path = self.get_font_path('NotoSansHans-Regular.otf')
         if details:
             # 获取已解锁成就集合，API 失败时用快照兜底
             unlocked_set = await self.achievement_monitor.get_player_achievements(self.API_KEY, group_id, steamid, gameid)
@@ -561,7 +630,7 @@ class SteamStatusMonitorV2(Star):
             if unlocked_set is None:
                 unlocked_set = set()
             try:
-                img_bytes = await self.achievement_monitor.render_achievement_image(details, set(achievements_to_notify), player_name=player_name, steamid=steamid, appid=gameid, unlocked_set=unlocked_set)
+                img_bytes = await self.achievement_monitor.render_achievement_image(details, set(achievements_to_notify), player_name=player_name, steamid=steamid, appid=gameid, unlocked_set=unlocked_set, font_path=font_path)
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
                     tmp.write(img_bytes)
                     tmp_path = tmp.name
@@ -627,24 +696,36 @@ class SteamStatusMonitorV2(Star):
     @filter.permission_type(filter.PermissionType.ADMIN)
     @filter.command("steam addid")
     async def steam_addid(self, event: AstrMessageEvent, steamid: str):
-        '''添加SteamID到本群监控列表（分群）'''
+        '''添加SteamID到本群监控列表（分群），支持多个ID用逗号分隔'''
         group_id = str(event.get_group_id()) if hasattr(event, 'get_group_id') else 'default'
-        if not steamid or not steamid.isdigit() or len(steamid) < 10:
-            yield event.plain_result("请输入有效的 SteamID（64位数字字符串）。")
+        # 支持多个ID同时输入
+        steamid_list = [x.strip() for x in steamid.split(".") if x.strip()]
+        invalid_ids = [sid for sid in steamid_list if not sid.isdigit() or len(sid) != 17]
+        if invalid_ids:
+            yield event.plain_result(f"以下SteamID无效（需为64位数字串，17位）：{'.'.join(invalid_ids)}")
             return
         steam_ids = self.group_steam_ids.setdefault(group_id, [])
-        if steamid in steam_ids:
-            yield event.plain_result("该SteamID已存在于本群监控组")
-            return
-        if len(steam_ids) >= self.max_group_size:
-            yield event.plain_result(f"本群监控组人数已达上限（{self.max_group_size}人），无法添加更多。")
-            return
-        steam_ids.append(steamid)
+        added = []
+        already = []
+        limit = self.max_group_size
+        for sid in steamid_list:
+            if sid in steam_ids:
+                already.append(sid)
+            elif len(steam_ids) < limit:
+                steam_ids.append(sid)
+                added.append(sid)
+            else:
+                break
         self.group_steam_ids[group_id] = steam_ids
-        self.config['group_steam_ids'] = self.group_steam_ids
-        if hasattr(self.config, "save_config"):
-            self.config.save_config()
-        yield event.plain_result(f"已为本群添加SteamID: {steamid}")
+        self._save_group_steam_ids()  # 新增：保存到 steam_groups.json
+        msg = ""
+        if added:
+            msg += f"已为本群添加SteamID: {'.'.join(added)}\n"
+        if already:
+            msg += f"以下SteamID已存在于本群监控组: {'.'.join(already)}\n"
+        if len(steam_ids) >= limit and len(added) < len(steamid_list):
+            msg += f"本群监控组人数已达上限（{limit}人），部分ID未添加。\n"
+        yield event.plain_result(msg.strip() if msg else "未添加任何SteamID。")
 
     @filter.permission_type(filter.PermissionType.ADMIN)
     @filter.command("steam delid")
@@ -657,9 +738,7 @@ class SteamStatusMonitorV2(Star):
             return
         steam_ids.remove(steamid)
         self.group_steam_ids[group_id] = steam_ids
-        self.config['group_steam_ids'] = self.group_steam_ids
-        if hasattr(self.config, "save_config"):
-            self.config.save_config()
+        self._save_group_steam_ids()  # 新增：保存到 steam_groups.json
         yield event.plain_result(f"已为本群删除SteamID: {steamid}")
 
     @filter.permission_type(filter.PermissionType.ADMIN)
@@ -673,9 +752,10 @@ class SteamStatusMonitorV2(Star):
             return
         if not steam_ids:
             yield event.plain_result("本群未设置监控的 SteamID 列表，请先添加。"); return
-        # 兼容 handle_steam_list
         event.group_steam_ids = steam_ids
-        async for result in handle_steam_list(self, event):
+        font_path = self.get_font_path('NotoSansHans-Regular.otf')
+        logger.info(f"[Font] steam_list 渲染传入字体路径: {font_path}")
+        async for result in handle_steam_list(self, event, font_path=font_path):
             yield result
 
     @filter.permission_type(filter.PermissionType.ADMIN)
@@ -811,9 +891,10 @@ class SteamStatusMonitorV2(Star):
         import random
         count = max(1, min(count, len(achievements)))
         unlocked = set(random.sample(list(achievements), count))
+        font_path = self.get_font_path('NotoSansHans-Regular.otf')
         # 直接测试 Pillow 渲染
         try:
-            img_bytes = await self.achievement_monitor.render_achievement_image(details, unlocked, player_name=player_name)
+            img_bytes = await self.achievement_monitor.render_achievement_image(details, unlocked, player_name=player_name, font_path=font_path)
             with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
                 tmp.write(img_bytes)
                 tmp_path = tmp.name
@@ -826,9 +907,9 @@ class SteamStatusMonitorV2(Star):
             yield event.plain_result(msg)
 
     @filter.permission_type(filter.PermissionType.ADMIN)
-    @filter.command(".steam test_game_start_render")
+    @filter.command("steam test_game_start_render")
     async def test_game_start_render(self, event: AstrMessageEvent, steamid: str, gameid: int):
-        '''测试开始游戏图片渲染效果（.steam test_game_start_render [steamid] [gameid]）'''
+        '''测试开始游戏图片渲染效果（steam test_game_start_render [steamid] [gameid]）'''
         try:
             # 获取玩家名
             status = await self.fetch_player_status(steamid)
@@ -838,8 +919,9 @@ class SteamStatusMonitorV2(Star):
             logger.info(f"[测试开始游戏渲染] steamid={steamid} gameid={gameid} player_name={player_name} avatar_url={avatar_url} game_name={game_name}")
             superpower = self.get_today_superpower(steamid)
             print(f"[superpower] test_game_start_render superpower={superpower}")
+            font_path = self.get_font_path('NotoSansHans-Regular.otf')
             img_bytes = await render_game_start(
-                self.data_dir, steamid, player_name, avatar_url, gameid, game_name, api_key=self.API_KEY, superpower=superpower, sgdb_api_key=self.SGDB_API_KEY
+                self.data_dir, steamid, player_name, avatar_url, gameid, game_name, api_key=self.API_KEY, superpower=superpower, sgdb_api_key=self.SGDB_API_KEY, font_path=font_path
             )
             logger.info(f"[测试开始游戏渲染] render_game_start 返回类型: {type(img_bytes)} 长度: {len(img_bytes) if img_bytes else 'None'}")
             if img_bytes:
@@ -900,9 +982,10 @@ class SteamStatusMonitorV2(Star):
                     tip_text = "主人你还活着喵？你是不是忘了关电脑呀~"
                 else:
                     tip_text = "你已经和椅子合为一体，成为传说中的‘椅子精’了喵！"
+            font_path = self.get_font_path('NotoSansHans-Regular.otf')
             img_bytes = await render_game_end(
                 self.data_dir, steamid, player_name, avatar_url, gameid, game_name,
-                end_time_str, tip_text, duration_h, sgdb_api_key=self.SGDB_API_KEY
+                end_time_str, tip_text, duration_h, sgdb_api_key=self.SGDB_API_KEY, font_path=font_path
             )
             msg = f"👋 {player_name} 不玩 {game_name} 了"
             import tempfile
@@ -935,6 +1018,24 @@ class SteamStatusMonitorV2(Star):
             yield event.plain_result(msg)
         except Exception as e:
             yield event.plain_result(f"清除缓存失败: {e}")
+
+    @filter.permission_type(filter.PermissionType.ADMIN)
+    @filter.command("steam clear_allids")
+    async def steam_clear_allids(self, event: AstrMessageEvent):
+        '''删除所有群聊的所有已监控SteamID，并清空相关状态数据'''
+        self.group_steam_ids.clear()
+        self._save_group_steam_ids()  # 新增：保存到 steam_groups.json
+        self.group_last_states.clear()
+        self.group_start_play_times.clear()
+        self.group_last_quit_times.clear()
+        self.group_pending_logs.clear()
+        self.group_pending_quit.clear()
+        self.group_recent_games.clear()
+        self._save_persistent_data()
+        self.config['group_steam_ids'] = self.group_steam_ids
+        if hasattr(self.config, "save_config"):
+            self.config.save_config()
+        yield event.plain_result("已删除所有群聊的所有SteamID，相关状态数据已清空。")
 
     async def check_status_change(self, group_id, single_sid=None, status_override=None, poll_level=None):
         '''轮询检测玩家状态变更并推送通知（分群，支持单个sid）
@@ -1043,8 +1144,9 @@ class SteamStatusMonitorV2(Star):
                     logger.info(f"[开始游戏渲染] avatar_url={avatar_url} sid={sid} name={name} gameid={current_gameid} game_name={zh_game_name}")
                     superpower = self.get_today_superpower(sid)
                     online_count = await self.get_game_online_count(current_gameid)
+                    font_path = self.get_font_path('NotoSansHans-Regular.otf')
                     img_bytes = await render_game_start(
-                        self.data_dir, sid, name, avatar_url, current_gameid, zh_game_name, api_key=self.API_KEY, superpower=superpower, online_count=online_count, sgdb_api_key=self.SGDB_API_KEY
+                        self.data_dir, sid, name, avatar_url, current_gameid, zh_game_name, api_key=self.API_KEY, superpower=superpower, online_count=online_count, sgdb_api_key=self.SGDB_API_KEY, font_path=font_path
                     )
                     logger.info(f"[开始游戏渲染] render_game_start 返回类型: {type(img_bytes)} 长度: {len(img_bytes) if img_bytes else 'None'}")
                     msg_chain = [Plain(msg)]
@@ -1204,9 +1306,10 @@ class SteamStatusMonitorV2(Star):
                                     tip_text = "主人你还活着喵？你是不是忘了关电脑呀~"
                                 else:
                                     tip_text = "你已经和椅子合为一体，成为传说中的‘椅子精’了喵！"
+                                font_path = self.get_font_path('NotoSansHans-Regular.otf')
                                 img_bytes = await render_game_end(
                                     self.data_dir, sid, info["name"], avatar_url, gameid, info["game_name"],
-                                    end_time_str, tip_text, duration_h, sgdb_api_key=self.SGDB_API_KEY
+                                    end_time_str, tip_text, duration_h, sgdb_api_key=self.SGDB_API_KEY, font_path=font_path
                                 )
                                 import tempfile
                                 with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
@@ -1276,33 +1379,3 @@ class SteamStatusMonitorV2(Star):
                 lines.append(f"  {name}({sid}) - {state_str}（{poll_str}）")
             lines.append("")
         yield event.plain_result("\n".join(lines))
-
-    @filter.permission_type(filter.PermissionType.ADMIN)
-    @filter.command(".steam test_game_start_render2")
-    async def test_game_start_render2(self, event: AstrMessageEvent, steamid: str, gameid: int, player_name: str = None, avatar_url: str = None):
-        '''测试开始游戏图片渲染（.steam test_game_start_render2 [steamid] [gameid] [玩家名 可选] [头像url 可选]）'''
-        try:
-            # 获取玩家名和头像
-            status = await self.fetch_player_status(steamid)
-            if not player_name:
-                player_name = status.get("name") if status else steamid
-            if not avatar_url:
-                avatar_url = status.get("avatarfull") or status.get("avatar") or "" if status else ""
-            game_name = await self.get_chinese_game_name(gameid)
-            superpower = self.get_today_superpower(steamid)
-            img_bytes = await render_game_start(
-                self.data_dir, steamid, player_name, avatar_url, gameid, game_name,
-                api_key=self.API_KEY, superpower=superpower, sgdb_api_key=self.SGDB_API_KEY
-            )
-            if img_bytes:
-                import tempfile
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
-                    tmp.write(img_bytes)
-                    tmp_path = tmp.name
-                yield event.image_result(tmp_path)
-            else:
-                yield event.plain_result("渲染失败，未获取到图片数据。")
-        except Exception as e:
-            import traceback
-            logger.error(f"测试开始游戏图片渲染失败: {e}\n{traceback.format_exc()}")
-            yield event.plain_result(f"渲染异常: {e}")

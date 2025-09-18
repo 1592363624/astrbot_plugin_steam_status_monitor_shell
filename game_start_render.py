@@ -198,12 +198,29 @@ async def get_playtime_hours(api_key, steamid, appid, retry_times=3):
             await asyncio.sleep(1)
     return 0.0
 
-def render_game_start_image(player_name, avatar_path, game_name, cover_path, playtime_hours=None, superpower=None, online_count=None):
+def get_font_path(font_name):
+    fonts_dir = os.path.join(os.path.dirname(__file__), 'fonts')
+    font_path = os.path.join(fonts_dir, font_name)
+    if os.path.exists(font_path):
+        return font_path
+    font_path2 = os.path.join(os.path.dirname(__file__), font_name)
+    if os.path.exists(font_path2):
+        return font_path2
+    return font_name
+
+def render_game_start_image(player_name, avatar_path, game_name, cover_path, playtime_hours=None, superpower=None, online_count=None, font_path=None):
     # 字体
+    fonts_dir = os.path.join(os.path.dirname(__file__), 'fonts')
+    font_regular = os.path.join(fonts_dir, 'NotoSansHans-Regular.otf')
+    font_medium = os.path.join(fonts_dir, 'NotoSansHans-Medium.otf')
+    if not os.path.exists(font_regular):
+        font_regular = os.path.join(os.path.dirname(__file__), 'NotoSansHans-Regular.otf')
+    if not os.path.exists(font_medium):
+        font_medium = os.path.join(os.path.dirname(__file__), 'NotoSansHans-Medium.otf')
     try:
-        font_bold = ImageFont.truetype("msyhbd.ttc", 28)
-        font = ImageFont.truetype("msyh.ttc", 22)
-        font_small = ImageFont.truetype("msyh.ttc", 16)  # 调小字号
+        font_bold = ImageFont.truetype(font_medium, 28)
+        font = ImageFont.truetype(font_regular, 22)
+        font_small = ImageFont.truetype(font_regular, 16)
     except:
         font_bold = font = font_small = ImageFont.load_default()
 
@@ -259,8 +276,8 @@ def render_game_start_image(player_name, avatar_path, game_name, cover_path, pla
             # 超能力文本渲染（头像下方居中两行）
             if superpower:
                 try:
-                    font_power_title = ImageFont.truetype("msyh.ttc", 16)
-                    font_power = ImageFont.truetype("msyh.ttc", 18)
+                    font_power_title = ImageFont.truetype(font_regular, 16)
+                    font_power = ImageFont.truetype(font_regular, 18)
                 except:
                     font_power_title = font_power = ImageFont.load_default()
                 power_x = avatar_x + AVATAR_SIZE // 2
@@ -291,7 +308,7 @@ def render_game_start_image(player_name, avatar_path, game_name, cover_path, pla
     player_font_size = 28
     for size in range(28, 15, -2):
         try:
-            font_bold_tmp = ImageFont.truetype("msyhbd.ttc", size)
+            font_bold_tmp = ImageFont.truetype(font_medium, size)
         except:
             font_bold_tmp = ImageFont.load_default()
         bbox = draw.textbbox((0, 0), player_name, font=font_bold_tmp)
@@ -299,7 +316,7 @@ def render_game_start_image(player_name, avatar_path, game_name, cover_path, pla
             player_font_size = size
             break
     try:
-        font_bold_final = ImageFont.truetype("msyhbd.ttc", player_font_size)
+        font_bold_final = ImageFont.truetype(font_medium, player_font_size)
     except:
         font_bold_final = ImageFont.load_default()
     draw.text((text_x + 8, text_y), player_name, font=font_bold_final, fill=(255,255,255,255))
@@ -324,7 +341,7 @@ def render_game_start_image(player_name, avatar_path, game_name, cover_path, pla
     # 新增：右上角显示在线人数
     if online_count is not None:
         try:
-            font_online = ImageFont.truetype("msyh.ttc", 14)
+            font_online = ImageFont.truetype(font_regular, 14)
         except:
             font_online = ImageFont.load_default()
         online_text = f"\u25CF玩家人数{online_count}"
@@ -336,14 +353,14 @@ def render_game_start_image(player_name, avatar_path, game_name, cover_path, pla
 
     return img.convert("RGB")
 
-async def render_game_start(data_dir, steamid, player_name, avatar_url, gameid, game_name, api_key=None, superpower=None, online_count=None, sgdb_api_key=None):
+async def render_game_start(data_dir, steamid, player_name, avatar_url, gameid, game_name, api_key=None, superpower=None, online_count=None, sgdb_api_key=None, font_path=None):
     print(f"[render_game_start] superpower参数: {superpower}")
     avatar_path = get_avatar_path(data_dir, steamid, avatar_url)
     cover_path = await get_cover_path(data_dir, gameid, game_name, sgdb_api_key=sgdb_api_key)
     playtime_hours = None
     if api_key:
         playtime_hours = await get_playtime_hours(api_key, steamid, gameid)
-    img = render_game_start_image(player_name, avatar_path, game_name, cover_path, playtime_hours, superpower, online_count)
+    img = render_game_start_image(player_name, avatar_path, game_name, cover_path, playtime_hours, superpower, online_count, font_path=font_path)
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     buf.seek(0)

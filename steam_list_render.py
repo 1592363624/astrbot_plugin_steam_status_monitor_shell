@@ -4,6 +4,9 @@ import math
 import httpx
 from PIL import Image, ImageDraw, ImageFont
 import asyncio
+import logging
+
+logger = logging.getLogger(__name__)
 
 STEAM_BG_TOP = (44, 62, 80)
 STEAM_BG_BOTTOM = (24, 32, 44)
@@ -87,15 +90,34 @@ def get_status_text(status):
     else:
         return "异常"
 
-async def render_steam_list_image(data_dir, user_list):
+def get_font_path(font_name):
+    fonts_dir = os.path.join(os.path.dirname(__file__), 'fonts')
+    font_path = os.path.join(fonts_dir, font_name)
+    if os.path.exists(font_path):
+        return font_path
+    font_path2 = os.path.join(os.path.dirname(__file__), font_name)
+    if os.path.exists(font_path2):
+        return font_path2
+    return font_name
+
+async def render_steam_list_image(data_dir, user_list, font_path=None):
     # 字体
+    if font_path is None:
+        font_path = os.path.join(os.path.dirname(__file__), 'fonts', 'NotoSansHans-Regular.otf')
+    logger.info(f"[Font] render_steam_list_image 使用字体路径: {font_path}")
     try:
-        font_title = ImageFont.truetype(FONT_PATH_BOLD, 28)
-        font_name = ImageFont.truetype(FONT_PATH_BOLD, 22)
-        font_game = ImageFont.truetype(FONT_PATH, 18)
-        font_status = ImageFont.truetype(FONT_PATH_BOLD, 16)
-        font_small = ImageFont.truetype(FONT_PATH, 14)
-    except Exception:
+        font_title = ImageFont.truetype(font_path, 28)
+        font_name = ImageFont.truetype(font_path, 22)
+        font_game = ImageFont.truetype(font_path, 18)
+        # 加粗用 Medium
+        font_bold_path = font_path.replace('Regular', 'Medium')
+        if os.path.exists(font_bold_path):
+            font_status = ImageFont.truetype(font_bold_path, 16)
+        else:
+            font_status = ImageFont.truetype(font_path, 16)
+        font_small = ImageFont.truetype(font_path, 14)
+    except Exception as e:
+        logger.warning(f"[Font] 加载字体失败: {e}")
         font_title = font_name = font_game = font_status = font_small = ImageFont.load_default()
 
     n = len(user_list)
