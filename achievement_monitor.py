@@ -258,20 +258,28 @@ class AchievementMonitor:
 
         # 字体路径
         fonts_dir = os.path.join(os.path.dirname(__file__), 'fonts')
-        font_regular = os.path.join(fonts_dir, 'NotoSansHans-Regular.otf')
-        font_medium = os.path.join(fonts_dir, 'NotoSansHans-Medium.otf')
+        # 优先使用传入 font_path
+        font_regular = font_path or os.path.join(fonts_dir, 'NotoSansHans-Regular.otf')
+        font_medium = font_regular.replace('Regular', 'Medium') if 'Regular' in font_regular else os.path.join(fonts_dir, 'NotoSansHans-Medium.otf')
+        # 修正：确保字体路径为绝对路径
+        if not os.path.isabs(font_regular):
+            font_regular = os.path.join(fonts_dir, os.path.basename(font_regular))
+        if not os.path.isabs(font_medium):
+            font_medium = os.path.join(fonts_dir, os.path.basename(font_medium))
         if not os.path.exists(font_regular):
-            font_regular = os.path.join(os.path.dirname(__file__), 'NotoSansHans-Regular.otf')
+            font_regular = os.path.join(fonts_dir, 'NotoSansHans-Regular.otf')
         if not os.path.exists(font_medium):
-            font_medium = os.path.join(os.path.dirname(__file__), 'NotoSansHans-Medium.otf')
+            font_medium = os.path.join(fonts_dir, 'NotoSansHans-Medium.otf')
         try:
             font_title = ImageFont.truetype(font_medium, 20)
             font_game = ImageFont.truetype(font_regular, 15)
             font_name = ImageFont.truetype(font_medium, 16)
             font_desc = ImageFont.truetype(font_regular, 13)
             font_percent = ImageFont.truetype(font_regular, 12)
+            font_game_small = ImageFont.truetype(font_regular, 12)
+            font_time = ImageFont.truetype(font_regular, 10)
         except Exception:
-            font_title = font_game = font_name = font_desc = font_percent = ImageFont.load_default()
+            font_title = font_game = font_name = font_desc = font_percent = font_game_small = font_time = ImageFont.load_default()
 
         # 1. 统计全成就进度（总进度，和本次解锁无关）
         if unlocked_set is None:
@@ -304,11 +312,9 @@ class AchievementMonitor:
         title_bbox = dummy_draw.textbbox((0, 0), title_text, font=font_title)
         title_h = title_bbox[3] - title_bbox[1]
         # 游戏名字体更小
-        font_game_small = ImageFont.truetype("msyh.ttc", 12) if hasattr(ImageFont, 'truetype') else font_game
         game_bbox = dummy_draw.textbbox((0, 0), game_name, font=font_game_small)
         game_h = game_bbox[3] - game_bbox[1]
         # 时间字体更小
-        font_time = ImageFont.truetype("msyh.ttc", 10) if hasattr(ImageFont, 'truetype') else font_percent
         time_bbox = dummy_draw.textbbox((0, 0), now_str, font=font_time)
         time_w = time_bbox[2] - time_bbox[0]
         time_h = time_bbox[3] - time_bbox[1]
