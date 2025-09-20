@@ -82,7 +82,6 @@ def render_gradient_bg(img_w, img_h, color_top, color_bottom):
 # get_cover_path 改为 async def 并 await get_sgdb_vertical_cover
 async def get_cover_path(data_dir, gameid, game_name, force_update=False, sgdb_api_key=None):
     from PIL import Image as PILImage
-    from io import BytesIO
     import httpx
     cover_dir = os.path.join(data_dir, "covers_v")
     os.makedirs(cover_dir, exist_ok=True)
@@ -90,7 +89,7 @@ async def get_cover_path(data_dir, gameid, game_name, force_update=False, sgdb_a
     # 只在本地不存在时才云端获取
     if os.path.exists(path):
         return path
-    # 1. SGDB优先
+    # 只尝试 SGDB 竖版封面
     url = await get_sgdb_vertical_cover(game_name, sgdb_api_key)
     if url:
         try:
@@ -101,47 +100,8 @@ async def get_cover_path(data_dir, gameid, game_name, force_update=False, sgdb_a
                 return path
         except Exception as e:
             print(f"[get_cover_path] SGDB下载异常: {e} url={url}")
-    # 2. fallback: 官方 capsule_600x900（竖版）优先，其次 header_image（横版）
-    try:
-        store_url = f"https://store.steampowered.com/api/appdetails?appids={gameid}&l=schinese"
-        resp = httpx.get(store_url, timeout=10)
-        data = resp.json()
-        info = data.get(str(gameid), {}).get("data", {})
-        # 先尝试 capsule_600x900
-        capsule_img = info.get("capsule_image")
-        if not capsule_img:
-            # 兼容部分API未返回 capsule_image 字段
-            header_img = info.get("header_image")
-            if header_img:
-                capsule_img = header_img.replace("_header.jpg", "_capsule_600x900.jpg")
-        if capsule_img:
-            img_resp = httpx.get(capsule_img, timeout=10)
-            if img_resp.status_code == 200:
-                img = PILImage.open(BytesIO(img_resp.content)).convert("RGB")
-                # 只缩放高度为900，宽度等比例缩放
-                scale = 900 / img.height
-                new_w = int(img.width * scale)
-                new_h = 900
-                img = img.resize((new_w, new_h), PILImage.LANCZOS)
-                img.save(path)
-                return path
-        # fallback: header_image 横版
-        header_img = info.get("header_image")
-        if header_img:
-            img_resp = httpx.get(header_img, timeout=10)
-            if img_resp.status_code == 200:
-                img = PILImage.open(BytesIO(img_resp.content)).convert("RGB")
-                # 只缩放高度为900，宽度等比例缩放
-                scale = 900 / img.height
-                new_w = int(img.width * scale)
-                new_h = 900
-                img = img.resize((new_w, new_h), PILImage.LANCZOS)
-                img.save(path)
-                return path
-    except Exception as e:
-        print(f"[get_cover_path] fallback capsule/header_image异常: {e}")
-    print(f"[get_cover_path] 封面获取失败: {gameid} {game_name}")
-    return path if os.path.exists(path) else None
+    print(f"[get_cover_path] SGDB未收录或下载失败: {gameid} {game_name}")
+    return None
 
 def draw_duration_bar(draw, x, y, width, height, duration_h):
     pad = 1
@@ -267,6 +227,7 @@ def render_game_end_image(player_name, avatar_path, game_name, cover_path, end_t
             img.paste(cover_resized, (0, 0), cover_resized)
         except Exception as e:
             print(f"[game_end_render] 封面加载失败: {e}")
+            new_w = COVER_W  # 渲染失败时使用默认宽度
 
     # 3. 头像（仅圆角，无柔光特效）
     avatar_x = new_w + 24
@@ -347,7 +308,10 @@ def render_game_end_image(player_name, avatar_path, game_name, cover_path, end_t
     bar_start_x = min_text_bbox[2] + 6
     bar_w = IMG_W - bar_start_x - 18  # 进度条延伸到画布结尾，右侧留18px
     bar_h = 6
-    draw_duration_bar(draw, bar_start_x, bar_y+6, bar_w, bar_h, duration_h)
+    if bar_w > 0:
+        draw_duration_bar(draw, bar_start_x, bar_y+6, bar_w, bar_h, duration_h)
+    else:
+        print(f"[game_end_render] 跳过进度条渲染，bar_w={bar_w}")
 
     # 8. 友好提示词，玩家名列底部，且与进度条有间隔
     tip_y = bar_y - font_tip.size - 8

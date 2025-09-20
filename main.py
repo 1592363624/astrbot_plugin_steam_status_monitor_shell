@@ -27,7 +27,7 @@ from .superpower_util import load_abilities, get_daily_superpower  # 新增导�
     "steam_status_monitor_V2",
     "Maoer",
     "Steam状态监控插件V2版",
-    "2.1.3",
+    "2.1.4",
     "https://github.com/Maoer233/astrbot_plugin_steam_status_monitor"
 )
 class SteamStatusMonitorV2(Star):
@@ -547,13 +547,15 @@ class SteamStatusMonitorV2(Star):
                 achievements_b = await self.achievement_monitor.get_player_achievements(
                     self.API_KEY, group_id, sid, gameid
                 )
+                # 新增：当天失败次数统计
+                today = time.strftime('%Y-%m-%d')
+                fail_key = (gameid, today)
                 if achievements_b is None:
-                    # 失败计数
-                    cnt = self.achievement_fail_count.get(gameid, 0) + 1
-                    self.achievement_fail_count[gameid] = cnt
-                    if cnt >= 3:
+                    cnt = self.achievement_fail_count.get(fail_key, 0) + 1
+                    self.achievement_fail_count[fail_key] = cnt
+                    if cnt >= 10:
                         self.achievement_blacklist.add(gameid)
-                        logger.info(f"[成就黑名单] 游戏 {gameid} 多次获取失败，已加入黑名单")
+                        logger.info(f"[成就黑名单] 游戏 {gameid} 当天累计获取失败10次，已加入黑名单")
                         break
                     continue
                 # 修正：补充新成就检测逻辑
@@ -582,12 +584,14 @@ class SteamStatusMonitorV2(Star):
         achievements_b = await self.achievement_monitor.get_player_achievements(
             self.API_KEY, group_id, sid, gameid
         )
+        today = time.strftime('%Y-%m-%d')
+        fail_key = (gameid, today)
         if achievements_b is None:
-            cnt = self.achievement_fail_count.get(gameid, 0) + 1
-            self.achievement_fail_count[gameid] = cnt
-            if cnt >= 3:
+            cnt = self.achievement_fail_count.get(fail_key, 0) + 1
+            self.achievement_fail_count[fail_key] = cnt
+            if cnt >= 10:
                 self.achievement_blacklist.add(gameid)
-                logger.info(f"[成就黑名单] 游戏 {gameid} 多次获取失败，已加入黑名单")
+                logger.info(f"[成就黑名单] 游戏 {gameid} 当天累计获取失败10次，已加入黑名单")
                 return
         if achievements_a is not None and achievements_b is not None:
             new_achievements = set(achievements_b) - set(achievements_a)
@@ -1197,7 +1201,7 @@ class SteamStatusMonitorV2(Star):
                             # 失败计数
                             cnt = self.achievement_fail_count.get(current_gameid, 0) + 1
                             self.achievement_fail_count[current_gameid] = cnt
-                            if cnt >= 3:
+                            if cnt >= 10:
                                 self.achievement_blacklist.add(current_gameid)
                                 logger.info(f"[成就黑名单] 游戏 {current_gameid} 多次获取失败，已加入黑名单")
                     except Exception as e:

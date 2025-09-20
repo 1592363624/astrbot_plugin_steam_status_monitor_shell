@@ -58,7 +58,6 @@ async def get_sgdb_vertical_cover(game_name, sgdb_api_key=None):
 
 async def get_cover_path(data_dir, gameid, game_name, force_update=False, sgdb_api_key=None):
     from PIL import Image as PILImage
-    from io import BytesIO
     import httpx
     cover_dir = os.path.join(data_dir, "covers_v")
     os.makedirs(cover_dir, exist_ok=True)
@@ -66,7 +65,7 @@ async def get_cover_path(data_dir, gameid, game_name, force_update=False, sgdb_a
     # 只在本地不存在时才云端获取
     if os.path.exists(path):
         return path
-    # 1. SGDB优先
+    # 只尝试 SGDB 竖版封面
     url = await get_sgdb_vertical_cover(game_name, sgdb_api_key)
     if url:
         try:
@@ -77,47 +76,8 @@ async def get_cover_path(data_dir, gameid, game_name, force_update=False, sgdb_a
                 return path
         except Exception as e:
             print(f"[get_cover_path] SGDB下载异常: {e} url={url}")
-    # 2. fallback: 官方 capsule_600x900（竖版）优先，其次 header_image（横版）
-    try:
-        store_url = f"https://store.steampowered.com/api/appdetails?appids={gameid}&l=schinese"
-        resp = httpx.get(store_url, timeout=10)
-        data = resp.json()
-        info = data.get(str(gameid), {}).get("data", {})
-        # 先尝试 capsule_600x900
-        capsule_img = info.get("capsule_image")
-        if not capsule_img:
-            # 兼容部分API未返回 capsule_image 字段
-            header_img = info.get("header_image")
-            if header_img:
-                capsule_img = header_img.replace("_header.jpg", "_capsule_600x900.jpg")
-        if capsule_img:
-            img_resp = httpx.get(capsule_img, timeout=10)
-            if img_resp.status_code == 200:
-                img = PILImage.open(BytesIO(img_resp.content)).convert("RGB")
-                # 只缩放高度为900，宽度等比例缩放
-                scale = 900 / img.height
-                new_w = int(img.width * scale)
-                new_h = 900
-                img = img.resize((new_w, new_h), PILImage.LANCZOS)
-                img.save(path)
-                return path
-        # fallback: header_image 横版
-        header_img = info.get("header_image")
-        if header_img:
-            img_resp = httpx.get(header_img, timeout=10)
-            if img_resp.status_code == 200:
-                img = PILImage.open(BytesIO(img_resp.content)).convert("RGB")
-                # 只缩放高度为900，宽度等比例缩放
-                scale = 900 / img.height
-                new_w = int(img.width * scale)
-                new_h = 900
-                img = img.resize((new_w, new_h), PILImage.LANCZOS)
-                img.save(path)
-                return path
-    except Exception as e:
-        print(f"[get_cover_path] fallback capsule/header_image异常: {e}")
-    print(f"[get_cover_path] 封面获取失败: {gameid} {game_name}")
-    return path if os.path.exists(path) else None
+    print(f"[get_cover_path] SGDB未收录或下载失败: {gameid} {game_name}")
+    return None
 
 def text_wrap(text, font, max_width):
     """自动换行，返回行列表"""
@@ -231,6 +191,7 @@ def render_game_start_image(player_name, avatar_path, game_name, cover_path, pla
 
     # 1. 封面图贴左，等比例缩放高度，宽度自适应，左贴右留空，不裁剪
     cover_area_h = IMG_H
+    new_w = COVER_W  # 默认宽度，防止后续变量未定义
     if cover_path and os.path.exists(cover_path):
         try:
             cover_src = Image.open(cover_path).convert("RGBA")
@@ -241,6 +202,7 @@ def render_game_start_image(player_name, avatar_path, game_name, cover_path, pla
             img.paste(cover_resized, (0, 0), cover_resized)
         except Exception as e:
             print(f"[render_game_start_image] 封面渲染失败: {e}")
+            new_w = COVER_W  # 渲染失败时使用默认宽度
 
     # 2. 头像位置参数（不再渲染头像）
     avatar_size = AVATAR_SIZE
@@ -311,7 +273,7 @@ def render_game_start_image(player_name, avatar_path, game_name, cover_path, pla
             font_bold_tmp = ImageFont.truetype(font_medium, size)
         except:
             font_bold_tmp = ImageFont.load_default()
-        bbox = draw.textbbox((0, 0), player_name, font=font_bold_tmp)
+        bbox = draw.textbbox((0, 0), player_name, font_bold_tmp)
         if bbox[2] - bbox[0] <= max_playername_w:
             player_font_size = size
             break
