@@ -173,6 +173,25 @@ def get_font_path(font_name):
         return font_path2
     return font_name
 
+def text_wrap(text, font, max_width):
+    lines = []
+    if not text:
+        return [""]
+    line = ""
+    dummy_img = Image.new("RGB", (10, 10))
+    draw = ImageDraw.Draw(dummy_img)
+    for char in text:
+        bbox = draw.textbbox((0, 0), line + char, font=font)
+        width = bbox[2] - bbox[0]
+        if width <= max_width:
+            line += char
+        else:
+            lines.append(line)
+            line = char
+    if line:
+        lines.append(line)
+    return lines
+
 def render_game_end_image(player_name, avatar_path, game_name, cover_path, end_time_str, tip_text, duration_h, font_path=None):
     # 字体
     fonts_dir = os.path.join(os.path.dirname(__file__), 'fonts')
@@ -288,9 +307,13 @@ def render_game_end_image(player_name, avatar_path, game_name, cover_path, end_t
         font_title = ImageFont.load_default()
     draw.text((avatar_x + AVATAR_SIZE + 20, 16), title_text, font=font_title, fill=(180,160,255,255), stroke_width=2, stroke_fill=(0,0,0,255))
 
-    # 5. 游戏名，头像右侧居左，第二行
+    # 5. 游戏名，头像右侧居左，第二行，自动换行
     game_name_y = 16 + font_title.size + 8
-    draw.text((avatar_x + AVATAR_SIZE + 20, game_name_y), game_name, font=font_game, fill=(220,220,255,255), stroke_width=2, stroke_fill=(0,0,0,255))
+    max_game_name_w = IMG_W - (avatar_x + AVATAR_SIZE + 20) - 24
+    game_name_lines = text_wrap(game_name, font_game, max_game_name_w)
+    max_lines = 2
+    for idx, line in enumerate(game_name_lines[:max_lines]):
+        draw.text((avatar_x + AVATAR_SIZE + 20, game_name_y + idx * (font_game.size + 2)), line, font=font_game, fill=(220,220,255,255), stroke_width=2, stroke_fill=(0,0,0,255))
 
     # 6. 空几行（间隔）
     tip_y = game_name_y + font_game.size + 28

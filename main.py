@@ -27,7 +27,7 @@ from .superpower_util import load_abilities, get_daily_superpower  # 新增导�
     "steam_status_monitor_V2",
     "Maoer",
     "Steam状态监控插件V2版",
-    "2.1.4",
+    "2.1.5",
     "https://github.com/Maoer233/astrbot_plugin_steam_status_monitor"
 )
 class SteamStatusMonitorV2(Star):
@@ -252,6 +252,7 @@ class SteamStatusMonitorV2(Star):
         self.poll_interval_mid_sec = self.config.get('poll_interval_mid_sec', 600)  # 10分钟
         self.poll_interval_long_sec = self.config.get('poll_interval_long_sec', 1800)  # 30分钟
         self.next_poll_time = {}  # {group_id: {steamid: next_time}}
+        self.detailed_poll_log = self.config.get('detailed_poll_log', True)
         # 数据持久化目录
         self.data_dir = os.path.join("data", "steam_status_monitor")
         os.makedirs(self.data_dir, exist_ok=True)
@@ -334,10 +335,13 @@ class SteamStatusMonitorV2(Star):
             # 40秒统一输出日志
             await asyncio.sleep(40)
             if self._last_round_logs:
-                all_logs = []
-                for group_id, logstr in self._last_round_logs:
-                    all_logs.append(f"群{group_id}：\n" + logstr)
-                logger.info("====== Steam状态监控轮询日志 ======\n" + "\n".join(all_logs) + "\n=====================================================")
+                if self.detailed_poll_log:
+                    all_logs = []
+                    for group_id, logstr in self._last_round_logs:
+                        all_logs.append(f"群{group_id}：\n" + logstr)
+                    logger.info("====== Steam状态监控轮询日志 ======\n" + "\n".join(all_logs) + "\n=====================================================")
+                else:
+                    logger.info("周期轮询成功")
                 self._last_round_logs.clear()
 
     async def terminate(self):
@@ -385,24 +389,6 @@ class SteamStatusMonitorV2(Star):
         x1 = min(x1 - 0, arr.shape[1])
         cropped = img.crop((x0, y0, x1, y1))
         return cropped
-
-    def get_today_superpower(self, steamid):
-        """获取玩家今日超能力（有缓存则直接返回）"""
-        today = time.strftime("%Y-%m-%d")
-        key = (steamid, today)
-        if key in self._superpower_cache:
-            print(f"[superpower] cache hit: {steamid} -> {self._superpower_cache[key]}")
-            return self._superpower_cache[key]
-        # 加载能力列表
-        if self._abilities is None:
-            print(f"[superpower] loading abilities from {self._abilities_path}")
-            print(f"[superpower] abilities.txt exists: {os.path.exists(self._abilities_path)}")
-            self._abilities = load_abilities(self._abilities_path)
-            print(f"[superpower] loaded abilities: {self._abilities}")
-        superpower = get_daily_superpower(steamid, self._abilities)
-        print(f"[superpower] generated for {steamid}: {superpower}")
-        self._superpower_cache[key] = superpower
-        return superpower
 
     async def fetch_player_status(self, steam_id, retry=None):
         '''拉取单个玩家的 Steam 状态，失败自动重试多次并指数退避'''
@@ -1218,7 +1204,7 @@ class SteamStatusMonitorV2(Star):
                 poll_interval = 60
             elif lastlogoff:
                 hours_ago = (now - int(lastlogoff)) / 3600
-                if hours_ago <= 1:
+                if hours_ago <= 0.2:
                     poll_interval = 60
                 elif hours_ago <= 3:
                     poll_interval = 300
@@ -1383,3 +1369,16 @@ class SteamStatusMonitorV2(Star):
                 lines.append(f"  {name}({sid}) - {state_str}（{poll_str}）")
             lines.append("")
         yield event.plain_result("\n".join(lines))
+
+    def get_today_superpower(self, steamid):
+        """获取指定SteamID当天的超能力描述（用于图片渲染）"""
+        from datetime import date
+        today = date.today().isoformat()
+        cache_key = (steamid, today)
+        if cache_key in self._superpower_cache:
+            return self._superpower_cache[cache_key]
+        if self._abilities is None:
+            self._abilities = load_abilities(self._abilities_path)
+        superpower = get_daily_superpower(steamid, self._abilities)
+        self._superpower_cache[cache_key] = superpower
+        return superpower
