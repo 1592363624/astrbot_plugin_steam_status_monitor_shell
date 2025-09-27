@@ -30,14 +30,15 @@ def get_avatar_path(data_dir, steamid, url, force_update=False):
         pass
     return path if os.path.exists(path) else None
 
-async def get_sgdb_vertical_cover(game_name, sgdb_api_key=None):
-    """通过 SteamGridDB API 用游戏名获取竖版封面URL（600x900），失败返回None"""
+async def get_sgdb_vertical_cover(game_name, sgdb_api_key=None, sgdb_game_name=None):
+    """通过 SteamGridDB API 用英文名优先获取竖版封面URL（600x900），失败返回None"""
     import httpx
     if not sgdb_api_key:
         return None
     headers = {"Authorization": f"Bearer {sgdb_api_key}"}
-    # 1. 搜索游戏名，获取SGDB内部ID
-    search_url = f"https://www.steamgriddb.com/api/v2/search/autocomplete/{game_name}"
+    # 优先用英文名查询
+    search_name = sgdb_game_name if sgdb_game_name else game_name
+    search_url = f"https://www.steamgriddb.com/api/v2/search/autocomplete/{search_name}"
     async with httpx.AsyncClient(timeout=10) as client:
         try:
             resp = await client.get(search_url, headers=headers)
@@ -45,7 +46,6 @@ async def get_sgdb_vertical_cover(game_name, sgdb_api_key=None):
             if not data.get("success") or not data.get("data"):
                 return None
             sgdb_game_id = data["data"][0]["id"]
-            # 2. 获取竖版封面
             grid_url = f"https://www.steamgriddb.com/api/v2/grids/game/{sgdb_game_id}?dimensions=600x900&type=static&limit=1"
             resp2 = await client.get(grid_url, headers=headers)
             data2 = resp2.json()
@@ -56,7 +56,7 @@ async def get_sgdb_vertical_cover(game_name, sgdb_api_key=None):
             print(f"[get_sgdb_vertical_cover] SGDB API异常: {e}")
             return None
 
-async def get_cover_path(data_dir, gameid, game_name, force_update=False, sgdb_api_key=None):
+async def get_cover_path(data_dir, gameid, game_name, force_update=False, sgdb_api_key=None, sgdb_game_name=None):
     from PIL import Image as PILImage
     import httpx
     cover_dir = os.path.join(data_dir, "covers_v")
@@ -66,7 +66,7 @@ async def get_cover_path(data_dir, gameid, game_name, force_update=False, sgdb_a
     if os.path.exists(path):
         return path
     # 只尝试 SGDB 竖版封面
-    url = await get_sgdb_vertical_cover(game_name, sgdb_api_key)
+    url = await get_sgdb_vertical_cover(game_name, sgdb_api_key, sgdb_game_name=sgdb_game_name)
     if url:
         try:
             resp = httpx.get(url, timeout=10)
@@ -265,8 +265,20 @@ def render_game_start_image(player_name, avatar_path, game_name, cover_path, pla
         except Exception as e:
             print(f"[render_game_start_image] 头像/超能力渲染失败: {e}")
 
-    # 玩家名自适应字号，防止出界
-    max_playername_w = IMG_W - (text_x + 8) - 24
+    # 新增：右上角显示在线人数，提前计算宽度
+    online_text = None
+    online_text_w = 0
+    if online_count is not None:
+        try:
+            font_online = ImageFont.truetype(font_regular, 14)
+        except:
+            font_online = ImageFont.load_default()
+        online_text = f"\u25CF玩家人数{online_count}"
+        text_bbox = draw.textbbox((0, 0), online_text, font=font_online)
+        online_text_w = text_bbox[2] - text_bbox[0] + 10  # 加右侧边距
+
+    # 玩家名自适应字号，防止出界和与在线人数重叠
+    max_playername_w = IMG_W - (text_x + 8) - online_text_w - 24
     player_font_size = 28
     for size in range(28, 15, -2):
         try:
@@ -300,25 +312,16 @@ def render_game_start_image(player_name, avatar_path, game_name, cover_path, pla
     else:
         print("[render_game_start_image] 未获取到游戏时长，playtime_hours=None")
 
-    # 新增：右上角显示在线人数
-    if online_count is not None:
-        try:
-            font_online = ImageFont.truetype(font_regular, 14)
-        except:
-            font_online = ImageFont.load_default()
-        online_text = f"\u25CF玩家人数{online_count}"
-        text_bbox = draw.textbbox((0, 0), online_text, font=font_online)
-        text_w = text_bbox[2] - text_bbox[0]
-        text_h = text_bbox[3] - text_bbox[1]
-        margin = 10
-        draw.text((IMG_W - text_w - margin, margin), online_text, font=font_online, fill=(120,180,255,180))
+    # 在线人数渲染（放在最后，确保不会被玩家名遮挡）
+    if online_text:
+        draw.text((IMG_W - online_text_w, 10), online_text, font=font_online, fill=(120,180,255,180))
 
     return img.convert("RGB")
 
-async def render_game_start(data_dir, steamid, player_name, avatar_url, gameid, game_name, api_key=None, superpower=None, online_count=None, sgdb_api_key=None, font_path=None):
+async def render_game_start(data_dir, steamid, player_name, avatar_url, gameid, game_name, api_key=None, superpower=None, online_count=None, sgdb_api_key=None, font_path=None, sgdb_game_name=None):
     print(f"[render_game_start] superpower参数: {superpower}")
     avatar_path = get_avatar_path(data_dir, steamid, avatar_url)
-    cover_path = await get_cover_path(data_dir, gameid, game_name, sgdb_api_key=sgdb_api_key)
+    cover_path = await get_cover_path(data_dir, gameid, game_name, sgdb_api_key=sgdb_api_key, sgdb_game_name=sgdb_game_name)
     playtime_hours = None
     if api_key:
         playtime_hours = await get_playtime_hours(api_key, steamid, gameid)

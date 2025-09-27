@@ -39,15 +39,24 @@ async def handle_steam_list(self, event, *, font_path: Optional[str] = None, **_
         avatar_url = status.get('avatarfull') or status.get('avatar') or ''
         zh_game_name = await self.get_chinese_game_name(gameid, game) if gameid else (game or "未知游戏")
         if gameid:
-            if sid in start_play_times:
-                play_seconds = now - start_play_times[sid]
-                play_minutes = play_seconds / 60
-                if play_minutes < 60:
-                    play_str = f"{play_minutes:.1f}分钟"
+            # 修复: start_play_times[sid] 可能为 dict
+            start_time = None
+            if isinstance(start_play_times.get(sid), dict):
+                # 优先取当前游戏的开始时间
+                if gameid and gameid in start_play_times[sid]:
+                    start_time = start_play_times[sid][gameid]
                 else:
-                    play_str = f"{play_minutes/60:.1f}小时"
+                    # 如果没有当前游戏，取所有游戏的最晚开始时间
+                    if start_play_times[sid]:
+                        start_time = max(start_play_times[sid].values())
             else:
-                play_str = "刚开始"
+                start_time = start_play_times.get(sid)
+            play_seconds = now - start_time if start_time else 0
+            play_minutes = play_seconds / 60
+            if play_minutes < 60:
+                play_str = f"{play_minutes:.1f}分钟"
+            else:
+                play_str = f"{play_minutes/60:.1f}小时"
             user_list.append({
                 'sid': sid,
                 'name': name,

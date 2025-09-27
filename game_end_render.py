@@ -18,11 +18,12 @@ STAR_BG_PATH = os.path.join(os.path.dirname(__file__), "随机散布的小星星
 
 SGDB_API_KEY = "00c703ea9a664ce236526aca0faeaaf4"
 
-async def get_sgdb_vertical_cover(game_name, sgdb_api_key=None):
+async def get_sgdb_vertical_cover(game_name, sgdb_api_key=None, sgdb_game_name=None):
     if not sgdb_api_key:
         return None
     headers = {"Authorization": f"Bearer {sgdb_api_key}"}
-    search_url = f"https://www.steamgriddb.com/api/v2/search/autocomplete/{game_name}"
+    search_name = sgdb_game_name if sgdb_game_name else game_name
+    search_url = f"https://www.steamgriddb.com/api/v2/search/autocomplete/{search_name}"
     async with httpx.AsyncClient(timeout=10) as client:
         try:
             resp = await client.get(search_url, headers=headers)
@@ -80,7 +81,7 @@ def render_gradient_bg(img_w, img_h, color_top, color_bottom):
     return base
 
 # get_cover_path 改为 async def 并 await get_sgdb_vertical_cover
-async def get_cover_path(data_dir, gameid, game_name, force_update=False, sgdb_api_key=None):
+async def get_cover_path(data_dir, gameid, game_name, force_update=False, sgdb_api_key=None, sgdb_game_name=None):
     from PIL import Image as PILImage
     import httpx
     cover_dir = os.path.join(data_dir, "covers_v")
@@ -90,7 +91,7 @@ async def get_cover_path(data_dir, gameid, game_name, force_update=False, sgdb_a
     if os.path.exists(path):
         return path
     # 只尝试 SGDB 竖版封面
-    url = await get_sgdb_vertical_cover(game_name, sgdb_api_key)
+    url = await get_sgdb_vertical_cover(game_name, sgdb_api_key, sgdb_game_name=sgdb_game_name)
     if url:
         try:
             resp = httpx.get(url, timeout=10)
@@ -150,7 +151,7 @@ def draw_duration_bar(draw, x, y, width, height, duration_h):
             if seg_w > 0:
                 draw.rounded_rectangle([x, y, x + seg_w, y + height], radius=height//2, fill=color)
         for i, (seg_start, seg_end, color) in enumerate(zip(seg_starts, seg_limits, bar_colors)):
-            if seg_texts[i] and duration_h > seg_start:
+            if (seg_texts[i] and duration_h > seg_start):
                 text = seg_texts[i]
                 try:
                     font = ImageFont.truetype("msyhbd.ttc", height+6)
@@ -342,9 +343,9 @@ def render_game_end_image(player_name, avatar_path, game_name, cover_path, end_t
     return img.convert("RGB")
 
 # render_game_end 里 await get_cover_path
-async def render_game_end(data_dir, steamid, player_name, avatar_url, gameid, game_name, end_time_str, tip_text, duration_h, sgdb_api_key=None, font_path=None):
+async def render_game_end(data_dir, steamid, player_name, avatar_url, gameid, game_name, end_time_str, tip_text, duration_h, sgdb_api_key=None, font_path=None, sgdb_game_name=None):
     avatar_path = get_avatar_path(data_dir, steamid, avatar_url)
-    cover_path = await get_cover_path(data_dir, gameid, game_name, sgdb_api_key=sgdb_api_key)
+    cover_path = await get_cover_path(data_dir, gameid, game_name, sgdb_api_key=sgdb_api_key, sgdb_game_name=sgdb_game_name)
     img = render_game_end_image(player_name, avatar_path, game_name, cover_path, end_time_str, tip_text, duration_h, font_path=font_path)
     buf = io.BytesIO()
     img.save(buf, format="PNG")

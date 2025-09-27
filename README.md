@@ -34,7 +34,9 @@
 ## 注意事项
 - 获取速度与是否成功获取 Steam 数据取决于网络环境。建议通过加速或魔法手段来保证稳定的查询状态。
 
-如果出现未知的轮询错误可以使用 /steam clear_allids 来清除所有群聊的轮询id
+- 如果出现未知的轮询错误可以使用 /steam clear_allids 来清除所有群聊的轮询id
+- 修改插件参数后，如果出现重复通知的情况，请不要重载插件，而是重启astrbot。
+- 如果出现未知的无法提醒，但轮询显示正常的情况，请使用 /steam on/off 进行修复
 
 ## 演示截图
 ![开始游戏示例](https://raw.githubusercontent.com/Maoer233/astrbot_plugin_steam_status_monitor/main/str.png)

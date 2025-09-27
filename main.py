@@ -27,7 +27,7 @@ from .superpower_util import load_abilities, get_daily_superpower  # 新增导�
     "steam_status_monitor_V2",
     "Maoer",
     "Steam状态监控插件V2版",
-    "2.1.5",
+    "2.1.7",
     "https://github.com/Maoer233/astrbot_plugin_steam_status_monitor"
 )
 class SteamStatusMonitorV2(Star):
@@ -206,7 +206,11 @@ class SteamStatusMonitorV2(Star):
             logger.warning(f"保存 steam_groups.json 失败: {e}")
 
     def __init__(self, context: Context, config=None):
-        super().__init__(context)
+        # 插件运行状态标志，重启后自动丢失
+        if hasattr(self, '_ssm_running') and self._ssm_running:
+            logger.error("当前插件已在运行中。请重启astrbot而非重载插件")
+            return
+        self._ssm_running = True
         self._ensure_fonts()  # 插件启动时自动检测/下载字体
         self.context = context
         # 分群管理：所有状态数据均以 group_id 为 key
@@ -463,6 +467,37 @@ class SteamStatusMonitorV2(Star):
             logger.warning(f"获取游戏名失败: {e} (gameid={gid})")
         # 不缓存 fallback，让下次还能重试
         return fallback_name or "未知游戏"
+
+    async def get_game_names(self, gameid, fallback_name=None):
+        '''
+        返回 (中文名, 英文名)，如无则 fallback_name 或 "未知游戏"
+        '''
+        if not gameid:
+            return (fallback_name or "未知游戏", fallback_name or "未知游戏")
+        gid = str(gameid)
+        if gid in self._game_name_cache:
+            cached = self._game_name_cache[gid]
+            if isinstance(cached, tuple):
+                return cached
+            else:
+                return (cached, cached)
+        url_zh = f"https://store.steampowered.com/api/appdetails?appids={gid}&l=schinese"
+        url_en = f"https://store.steampowered.com/api/appdetails?appids={gid}&l=en"
+        name_zh = name_en = fallback_name or "未知游戏"
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp_zh = await client.get(url_zh)
+                data_zh = resp_zh.json()
+                info_zh = data_zh.get(gid, {}).get("data", {})
+                name_zh = info_zh.get("name") or name_zh
+                resp_en = await client.get(url_en)
+                data_en = resp_en.json()
+                info_en = data_en.get(gid, {}).get("data", {})
+                name_en = info_en.get("name") or name_en
+        except Exception as e:
+            logger.warning(f"获取游戏名失败: {e} (gameid={gid})")
+        self._game_name_cache[gid] = (name_zh, name_en)
+        return (name_zh, name_en)
 
     async def get_game_cover_url(self, gameid, force_update=False):
         '''
@@ -745,7 +780,8 @@ class SteamStatusMonitorV2(Star):
         event.group_steam_ids = steam_ids
         font_path = self.get_font_path('NotoSansHans-Regular.otf')
         logger.info(f"[Font] steam_list 渲染传入字体路径: {font_path}")
-        async for result in handle_steam_list(self, event, font_path=font_path):
+        # 修改：显式传递 group_id
+        async for result in handle_steam_list(self, event, group_id=group_id, font_path=font_path):
             yield result
 
     @filter.permission_type(filter.PermissionType.ADMIN)
@@ -901,17 +937,17 @@ class SteamStatusMonitorV2(Star):
     async def test_game_start_render(self, event: AstrMessageEvent, steamid: str, gameid: int):
         '''测试开始游戏图片渲染效果（steam test_game_start_render [steamid] [gameid]）'''
         try:
-            # 获取玩家名
             status = await self.fetch_player_status(steamid)
             player_name = status.get("name") if status else steamid
             avatar_url = status.get("avatarfull") or status.get("avatar") or "" if status else ""
-            game_name = await self.get_chinese_game_name(gameid)
-            logger.info(f"[测试开始游戏渲染] steamid={steamid} gameid={gameid} player_name={player_name} avatar_url={avatar_url} game_name={game_name}")
+            zh_game_name, en_game_name = await self.get_game_names(gameid)
+            logger.info(f"[测试开始游戏渲染] steamid={steamid} gameid={gameid} player_name={player_name} avatar_url={avatar_url} zh_game_name={zh_game_name} en_game_name={en_game_name}")
             superpower = self.get_today_superpower(steamid)
             print(f"[superpower] test_game_start_render superpower={superpower}")
             font_path = self.get_font_path('NotoSansHans-Regular.otf')
+            online_count = await self.get_game_online_count(gameid)
             img_bytes = await render_game_start(
-                self.data_dir, steamid, player_name, avatar_url, gameid, game_name, api_key=self.API_KEY, superpower=superpower, sgdb_api_key=self.SGDB_API_KEY, font_path=font_path
+                self.data_dir, steamid, player_name, avatar_url, gameid, zh_game_name, api_key=self.API_KEY, superpower=superpower, sgdb_api_key=self.SGDB_API_KEY, font_path=font_path, sgdb_game_name=en_game_name, online_count=online_count
             )
             logger.info(f"[测试开始游戏渲染] render_game_start 返回类型: {type(img_bytes)} 长度: {len(img_bytes) if img_bytes else 'None'}")
             if img_bytes:
@@ -937,18 +973,16 @@ class SteamStatusMonitorV2(Star):
     async def steam_test_game_end_render(self, event: AstrMessageEvent, steamid: str, gameid: int, duration_min: float = 120, end_time: str = None, tip_text: str = None):
         '''测试游戏结束图片渲染（steam test_game_end_render [steamid] [gameid] [时长分钟] [结束时间 可选] [提示 可选]）'''
         try:
-            # 获取玩家名、头像
             status = await self.fetch_player_status(steamid)
             player_name = status.get("name") if status else steamid
             avatar_url = status.get("avatarfull") or status.get("avatar") or "" if status else ""
-            game_name = await self.get_chinese_game_name(gameid)
+            zh_game_name, en_game_name = await self.get_game_names(gameid)
             from datetime import datetime
             if end_time:
                 end_time_str = end_time
             else:
                 end_time_str = datetime.now().strftime("%Y-%m-%d %H:%M")
             duration_h = float(duration_min) / 60 if duration_min else 0
-            # 默认提示
             if not tip_text:
                 if duration_min < 5:
                     tip_text = "风扇都没转热，主人就结束了？"
@@ -974,10 +1008,10 @@ class SteamStatusMonitorV2(Star):
                     tip_text = "你已经和椅子合为一体，成为传说中的‘椅子精’了喵！"
             font_path = self.get_font_path('NotoSansHans-Regular.otf')
             img_bytes = await render_game_end(
-                self.data_dir, steamid, player_name, avatar_url, gameid, game_name,
-                end_time_str, tip_text, duration_h, sgdb_api_key=self.SGDB_API_KEY, font_path=font_path
+                self.data_dir, steamid, player_name, avatar_url, gameid, zh_game_name,
+                end_time_str, tip_text, duration_h, sgdb_api_key=self.SGDB_API_KEY, font_path=font_path, sgdb_game_name=en_game_name
             )
-            msg = f"👋 {player_name} 不玩 {game_name} 了"
+            msg = f"👋 {player_name} 不玩 {zh_game_name} 了\n游玩时间 {duration_h:.1f}小时"
             import tempfile
             with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
                 tmp.write(img_bytes)
@@ -1027,6 +1061,68 @@ class SteamStatusMonitorV2(Star):
             self.config.save_config()
         yield event.plain_result("已删除所有群聊的所有SteamID，相关状态数据已清空。")
 
+    async def _delayed_quit_check(self, group_id, sid, gameid):
+        await asyncio.sleep(180)
+        info = self.group_pending_quit.get(sid, {}).get(gameid)
+        if info and not info.get("notified"):
+            # 新增：如果 duration_min 为 0，重试查询 2 次
+            duration_min = info["duration_min"]
+            if duration_min == 0:
+                for _ in range(2):
+                    last_quit_time = info["quit_time"]
+                    start_time = info["start_time"]
+                    if start_time and last_quit_time:
+                        duration_min = (last_quit_time - start_time) / 60
+                        if duration_min > 0:
+                            info["duration_min"] = duration_min
+                            break
+                    await asyncio.sleep(1)
+            info["notified"] = True
+            duration_min = info["duration_min"]
+            # 优化时间显示
+            if duration_min < 60:
+                time_str = f"{duration_min:.1f}分钟"
+            else:
+                time_str = f"{duration_min/60:.1f}小时"
+            msg = f"👋 {info['name']} 不玩 {info['game_name']}了\n游玩时间 {time_str}"
+            notify_session = getattr(self, 'notify_sessions', {}).get(group_id, None)
+            if notify_session:
+                try:
+                    from datetime import datetime
+                    end_time_str = datetime.fromtimestamp(info["quit_time"]).strftime("%Y-%m-%d %H:%M")
+                    duration_h = info["duration_min"] / 60 if info["duration_min"] > 0 else 0
+                    avatar_url = None
+                    last_state = self.group_last_states.get(group_id, {}).get(sid)
+                    if last_state:
+                        avatar_url = last_state.get("avatarfull") or last_state.get("avatar")
+                    if not avatar_url:
+                        status_full = await self.fetch_player_status(sid)
+                        if status_full:
+                            avatar_url = status_full.get("avatarfull") or status_full.get("avatar")
+                    tip_text = info.get("tip_text") or "你已经和椅子合为一体，成为传说中的‘椅子精’了喵！"
+                    zh_game_name, en_game_name = await self.get_game_names(gameid, info["game_name"])
+                    font_path = self.get_font_path('NotoSansHans-Regular.otf')
+                    img_bytes = await render_game_end(
+                        self.data_dir, sid, info["name"], avatar_url, gameid, zh_game_name,
+                        end_time_str, tip_text, duration_h, sgdb_api_key=self.SGDB_API_KEY, font_path=font_path, sgdb_game_name=en_game_name
+                    )
+                    import tempfile
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
+                        tmp.write(img_bytes)
+                        tmp_path = tmp.name
+                    await self.context.send_message(notify_session, MessageChain([Plain(msg), Image.fromFileSystem(tmp_path)]))
+                except Exception as e:
+                    logger.error(f"推送游戏结束图片失败: {e}")
+                    await self.context.send_message(notify_session, MessageChain([Plain(msg)]))
+            # 三分钟后再关闭成就轮询和清理快照
+            key = (group_id, sid, gameid)
+            poll_task = self.achievement_poll_tasks.pop(key, None)
+            if poll_task:
+                poll_task.cancel()
+            self.achievement_snapshots.pop(key, None)
+            self.achievement_monitor.clear_game_achievements(group_id, sid, gameid)
+            self.group_pending_quit[sid].pop(gameid, None)
+
     async def check_status_change(self, group_id, single_sid=None, status_override=None, poll_level=None):
         '''轮询检测玩家状态变更并推送通知（分群，支持单个sid）
         返回精简日志字符串，不直接打印日志'''
@@ -1053,22 +1149,31 @@ class SteamStatusMonitorV2(Star):
             zh_game_name = await self.get_chinese_game_name(gameid, game) if gameid else (game or "未知游戏")
             prev_gameid = prev.get('gameid') if prev else None
             current_gameid = gameid
-            # --- 新增：初始化 last_quit_times/pending_logs/pending_quit ---
-            if sid not in last_quit_times:
-                last_quit_times[sid] = {}
-            if sid not in pending_logs:
-                pending_logs[sid] = {}
-            if sid not in pending_quit:
-                pending_quit[sid] = {}
-
             # --- 退出游戏（缓冲3分钟） ---
             if prev_gameid and current_gameid in [None, "", "0"]:
                 logger.info(f"[退出逻辑] {name} prev_gameid={prev_gameid} current_gameid={current_gameid}")
                 zh_prev_game_name = await self.get_chinese_game_name(prev_gameid, prev.get('gameextrainfo') if prev else None) if prev_gameid else (prev.get('gameextrainfo') if prev else "未知游戏")
                 duration_min = 0
-                start_time = start_play_times.get(sid, now)
-                if sid in start_play_times:
-                    duration_min = (now - start_play_times[sid]) / 60
+                start_time = start_play_times[sid].get(prev_gameid, now)
+                if prev_gameid in start_play_times[sid]:
+                    duration_min = (now - start_play_times[sid][prev_gameid]) / 60
+                    # 新增：如果 duration_min 为 0，重试查询 2 次
+                    if duration_min == 0:
+                        for _ in range(2):
+                            start_time = start_play_times[sid].get(prev_gameid, now)
+                            duration_min = (now - start_time) / 60
+                            if duration_min > 0:
+                                break
+                            await asyncio.sleep(1)
+                self.achievement_monitor.clear_game_achievements(group_id, sid, prev_gameid)
+                pending_quit[sid][prev_gameid] = {
+                    "quit_time": now,
+                    "name": name,
+                    "game_name": zh_prev_game_name,
+                    "duration_min": duration_min,
+                    "start_time": start_time,
+                    "notified": False
+                }
                 # 成就结算：游戏结束时，延迟15分钟再做一次对比
                 try:
                     player_name = name
@@ -1080,16 +1185,18 @@ class SteamStatusMonitorV2(Star):
                     asyncio.create_task(self.achievement_delayed_final_check(group_id, sid, prev_gameid, player_name, game_name))
                 except Exception as e:
                     logger.error(f"结算成就时异常: {e}")
-                self.achievement_monitor.clear_game_achievements(group_id, sid, prev_gameid)
-                pending_quit[sid][prev_gameid] = {
-                    "quit_time": now,
-                    "name": name,
-                    "game_name": zh_prev_game_name,
-                    "duration_min": duration_min,
-                    "start_time": start_time,
-                    "notified": False
-                }
-                start_play_times.pop(sid, None)
+                # 启动延迟任务
+                if not hasattr(self, '_pending_quit_tasks'):
+                    self._pending_quit_tasks = {}
+                if sid not in self._pending_quit_tasks:
+                    self._pending_quit_tasks[sid] = {}
+                # 取消旧任务
+                old_task = self._pending_quit_tasks[sid].get(prev_gameid)
+                if old_task:
+                    old_task.cancel()
+                task = asyncio.create_task(self._delayed_quit_check(group_id, sid, prev_gameid))
+                self._pending_quit_tasks[sid][prev_gameid] = task
+                # 不移除 start_play_times[sid][prev_gameid]，保证时长累计
                 last_quit_times[sid][prev_gameid] = now
                 last_states[sid] = status
                 continue  # 防止重复推送
@@ -1097,103 +1204,63 @@ class SteamStatusMonitorV2(Star):
             # --- 开始游戏/继续游戏（仅当 gameid 变更时推送） ---
             if current_gameid not in [None, "", "0"] and current_gameid != prev_gameid:
                 quit_info = pending_quit[sid].get(current_gameid)
+                # 检查是否为网络波动（3分钟内重启同一游戏）
                 if quit_info and now - quit_info["quit_time"] <= 180 and not quit_info.get("notified"):
-                    persona_state = status.get("personastate", 0)
-                    persona_tail = ""
-                    continue
-                logger.info(f"[开始逻辑] {name} prev_gameid={prev_gameid} current_gameid={current_gameid}")
-                last_quit = last_quit_times[sid].get(current_gameid)
-                is_continue = last_quit and (now - last_quit) <= 300
-                if is_continue:
-                    if sid in start_play_times:
-                        pass
-                    else:
-                        start_play_times[sid] = now
-                    continue_tails = [
-                        "是掉线了吗？继续肝！",
-                        "游戏bug了吗？又回来了！",
-                        "网络波动？咱一直在等你喵~",
-                        "又是闪退？Steam真不省心喵~",
-                        "欢迎回来，继续冲！",
-                        "咱就知道你还会回来的喵~",
-                        "继续刚才的进度吧！",
-                        "咱以为你下线了，其实你还在游戏里喵~"
-                    ]
-                    msg = f"🔄 {name} 继续玩 {zh_game_name} 了！{random.choice(continue_tails)}"
-                else:
-                    start_play_times[sid] = now
-                    msg = f"🟢 {name} 开始玩 {zh_game_name} 了！"
-                try:
-                    avatar_url = status.get("avatarfull") or status.get("avatar") or ""
-                    if not avatar_url and prev:
-                        avatar_url = prev.get("avatarfull") or prev.get("avatar") or ""
-                    if not avatar_url:
-                        status_full = await self.fetch_player_status(sid)
-                        if status_full:
-                            avatar_url = status_full.get("avatarfull") or status_full.get("avatar")
-                    logger.info(f"[开始游戏渲染] avatar_url={avatar_url} sid={sid} name={name} gameid={current_gameid} game_name={zh_game_name}")
-                    superpower = self.get_today_superpower(sid)
-                    online_count = await self.get_game_online_count(current_gameid)
-                    font_path = self.get_font_path('NotoSansHans-Regular.otf')
-                    img_bytes = await render_game_start(
-                        self.data_dir, sid, name, avatar_url, current_gameid, zh_game_name, api_key=self.API_KEY, superpower=superpower, online_count=online_count, sgdb_api_key=self.SGDB_API_KEY, font_path=font_path
-                    )
-                    logger.info(f"[开始游戏渲染] render_game_start 返回类型: {type(img_bytes)} 长度: {len(img_bytes) if img_bytes else 'None'}")
+                    # 取消延迟任务
+                    if hasattr(self, '_pending_quit_tasks') and self._pending_quit_tasks.get(sid, {}).get(current_gameid):
+                        self._pending_quit_tasks[sid][current_gameid].cancel()
+                        self._pending_quit_tasks[sid].pop(current_gameid, None)
+                    quit_info["notified"] = True
+                    msg = f"⚠️ {name} 游玩 {zh_game_name} 时网络波动了"
                     msg_chain = [Plain(msg)]
-                    if img_bytes:
+                    notify_session = getattr(self, 'notify_sessions', {}).get(group_id, None)
+                    if notify_session:
+                        await self.context.send_message(notify_session, MessageChain(msg_chain))
+                    # 保持原 start_play_times[sid][current_gameid]，不重置时长
+                    last_states[sid] = status
+                    continue  # 只推送网络波动提醒，跳过后续逻辑
+                # 修复：补充开始游戏推送逻辑
+                start_play_times[sid][current_gameid] = now
+                msg = f"🟢【{name}】开始游玩 {zh_game_name}"
+                notify_session = getattr(self, 'notify_sessions', {}).get(group_id, None)
+                if notify_session:
+                    try:
+                        avatar_url = status.get("avatarfull") or status.get("avatar")
+                        superpower = self.get_today_superpower(sid)
+                        font_path = self.get_font_path('NotoSansHans-Regular.otf')
+                        online_count = await self.get_game_online_count(current_gameid)
+                        img_bytes = await render_game_start(
+                            self.data_dir, sid, name, avatar_url, current_gameid, zh_game_name,
+                            api_key=self.API_KEY, superpower=superpower, sgdb_api_key=self.SGDB_API_KEY,
+                            font_path=font_path, sgdb_game_name=zh_game_name, online_count=online_count
+                        )
                         import tempfile
                         with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
                             tmp.write(img_bytes)
                             tmp_path = tmp.name
-                        logger.info(f"[开始游戏渲染] 已保存原图到 {tmp_path}")
-                        msg_chain.append(Image.fromFileSystem(tmp_path))
-                    else:
-                        logger.error(f"[开始游戏渲染] render_game_start 返回空")
-                except Exception as e:
-                    logger.error(f"开始游戏图片渲染失败: {e}\n{traceback.format_exc()}")
-                    msg_chain = [Plain(msg)]
-                try:
-                    if notify_session:
-                        logger.info(f"{name} 开始玩 {zh_game_name} 了，推送通知")
-                        await self.context.send_message(notify_session, MessageChain(msg_chain))
-                        last_states[sid] = status
-                    else:
-                        logger.error("未设置推送会话，无法发送消息")
-                except Exception as e:
-                    logger.error(f"推送新开始游戏消息失败: {e}")
-                last_quit_times[sid].pop(current_gameid, None)
-                if current_gameid in pending_quit[sid]:
-                    del pending_quit[sid][current_gameid]
-                self.achievement_monitor.clear_game_achievements(group_id, sid, current_gameid)
-                # 启动成就轮询时跳过黑名单
-                if current_gameid not in self.achievement_blacklist:
-                    try:
-                        logger.info(f"[成就快照] 检测到用户 {name} 正在游玩游戏 {zh_game_name}({current_gameid})，正在获取成就列表")
-                        achievements_start = await self.achievement_monitor.get_player_achievements(
-                            self.API_KEY, group_id, sid, current_gameid
-                        )
-                        if achievements_start is not None:
-                            logger.info(f"[成就快照] 成功获取成就列表：{len(achievements_start)} / {current_gameid}")
-                            key = (group_id, sid, current_gameid)
-                            self.achievement_snapshots[key] = list(achievements_start)
-                            player_name = name
-                            game_name = zh_game_name
-                            old_task = self.achievement_poll_tasks.pop(key, None)
-                            if old_task:
-                                old_task.cancel()
-                            poll_task = asyncio.create_task(self.achievement_periodic_check(group_id, sid, current_gameid, player_name, game_name))
-                            self.achievement_poll_tasks[key] = poll_task
-                        else:
-                            # 失败计数
-                            cnt = self.achievement_fail_count.get(current_gameid, 0) + 1
-                            self.achievement_fail_count[current_gameid] = cnt
-                            if cnt >= 10:
-                                self.achievement_blacklist.add(current_gameid)
-                                logger.info(f"[成就黑名单] 游戏 {current_gameid} 多次获取失败，已加入黑名单")
+                        await self.context.send_message(notify_session, MessageChain([Plain(msg), Image.fromFileSystem(tmp_path)]))
                     except Exception as e:
-                        logger.error(f"保存开始游戏成就快照异常: {e}")
+                        logger.error(f"推送开始游戏图片失败: {e}")
+                        await self.context.send_message(notify_session, MessageChain([Plain(msg)]))
+                # 成就监控任务启动
+                try:
+                    player_name = name
+                    game_name = zh_game_name
+                    key = (group_id, sid, current_gameid)
+                    achievements = await self.achievement_monitor.get_player_achievements(self.API_KEY, group_id, sid, current_gameid)
+                    self.achievement_snapshots[key] = list(achievements) if achievements else []
+                    # 新增日志：已成功获取成就列表
+                    unlocked_count = len(achievements) if achievements else 0
+                    # 获取总成就数量
+                    details = await self.achievement_monitor.get_achievement_details(group_id, current_gameid, lang="schinese", api_key=self.API_KEY, steamid=sid)
+                    total_count = len(details) if details else 0
+                    logger.info(f"[成就初始化] {name} 已成功获取成就列表 {unlocked_count}/{total_count} 游戏名：{zh_game_name}")
+                    poll_task = asyncio.create_task(self.achievement_periodic_check(group_id, sid, current_gameid, player_name, game_name))
+                    self.achievement_poll_tasks[key] = poll_task
+                except Exception as e:
+                    logger.error(f"启动成就监控任务异常: {e}")
                 last_states[sid] = status
-                continue  # 防止重复推送
+                continue
 
             # 智能轮询间隔设置
             next_poll = self.next_poll_time.setdefault(group_id, {})
@@ -1253,18 +1320,20 @@ class SteamStatusMonitorV2(Star):
             for gameid in list(pending_quit[sid].keys()):
                 info = pending_quit[sid][gameid]
                 if now - info["quit_time"] >= 180 and not info.get("notified"):
-                    # 推送前先标记为已通知，防止并发重复推送
                     info["notified"] = True
-                    duration_min = info["duration_min"]
-                    msg = f"👋 {info['name']} 不玩 {info['game_name']} 了"
+                    duration_min = info.get("duration_min", 0)
+                    # 优化时间显示
+                    if duration_min < 60:
+                        time_str = f"{duration_min:.1f}分钟"
+                    else:
+                        time_str = f"{duration_min/60:.1f}小时"
+                    msg = f"👋 {info['name']} 不玩 {info['game_name']}了\n游玩时间 {time_str}"
                     try:
                         if notify_session:
                             # 新增：渲染游戏结束图片
                             try:
                                 from datetime import datetime
                                 end_time_str = datetime.fromtimestamp(info["quit_time"]).strftime("%Y-%m-%d %H:%M")
-                                duration_h = info["duration_min"] / 60 if info["duration_min"] > 0 else 0
-                                # 获取头像
                                 avatar_url = None
                                 last_state = last_states.get(sid)
                                 if last_state:
@@ -1296,10 +1365,11 @@ class SteamStatusMonitorV2(Star):
                                     tip_text = "主人你还活着喵？你是不是忘了关电脑呀~"
                                 else:
                                     tip_text = "你已经和椅子合为一体，成为传说中的‘椅子精’了喵！"
+                                zh_game_name, en_game_name = await self.get_game_names(gameid, info["game_name"])
                                 font_path = self.get_font_path('NotoSansHans-Regular.otf')
                                 img_bytes = await render_game_end(
-                                    self.data_dir, sid, info["name"], avatar_url, gameid, info["game_name"],
-                                    end_time_str, tip_text, duration_h, sgdb_api_key=self.SGDB_API_KEY, font_path=font_path
+                                    self.data_dir, sid, info["name"], avatar_url, gameid, zh_game_name,
+                                    end_time_str, tip_text, duration_min/60 if duration_min > 0 else 0, sgdb_api_key=self.SGDB_API_KEY, font_path=font_path, sgdb_game_name=en_game_name
                                 )
                                 import tempfile
                                 with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
