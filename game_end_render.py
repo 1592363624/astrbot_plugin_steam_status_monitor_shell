@@ -16,7 +16,6 @@ IMG_W, IMG_H = 512, 192
 # 星星素材路径（假定与本文件同目录）
 STAR_BG_PATH = os.path.join(os.path.dirname(__file__), "随机散布的小星星767x809xp.png")
 
-SGDB_API_KEY = "00c703ea9a664ce236526aca0faeaaf4"
 
 async def get_sgdb_vertical_cover(game_name, sgdb_api_key=None, sgdb_game_name=None):
     if not sgdb_api_key:
