@@ -3,7 +3,7 @@
 ## 访问统计
 ![访问统计](https://count.getloli.com/get/@astrbot_ssm?theme=rule34)
 
-本插件是专为[AstrBot](https://github.com/AstrBotDevs/AstrBot)设计的插件，用于定时轮询 Steam Web API，监控指定玩家的在线/离线/游戏状态变更，并在状态变化时推送通知。支持多 SteamID 监控，自动记录游玩日志，支持群聊分组，数据持久化，支持丰富指令。
+本插件是专为AstrBot设计的插件，用于定时轮询 Steam Web API，监控指定玩家的在线/离线/游戏状态变更，并在状态变化时推送通知。支持多 SteamID 监控，自动记录游玩日志，支持群聊分组，数据持久化，支持丰富指令。
 
 ## 功能特性
 - 支持定时轮询多个 SteamID 的状态，分群管理，每个群聊可独立配置监控玩家
@@ -37,7 +37,7 @@
 - 如果出现未知的轮询错误可以使用 /steam clear_allids 来清除所有群聊的轮询id
 - 修改插件参数后，如果出现重复通知的情况，请不要重载插件，而是重启astrbot。
 - 如果出现未知的无法提醒，但轮询显示正常的情况，请使用 /steam on/off 进行修复
-
+- 部分设备会出现2.1.7或以上版本无法正常进行信息推送的情况，需降级为2.1.6或以下版本使用。
 ## 演示截图
 ![开始游戏示例](https://raw.githubusercontent.com/Maoer233/astrbot_plugin_steam_status_monitor/main/str.png)
 ![结束游戏示例](https://raw.githubusercontent.com/Maoer233/astrbot_plugin_steam_status_monitor/main/stop.png)
@@ -50,20 +50,18 @@
 - `/steam list` 列出本群所有玩家当前状态
 - `/steam alllist` 列出所有群聊分组及玩家状态
 - `/steam config` 查看当前插件配置
-- `/steam set [参数] [值]` 设置配置参数（不可用）
+- `/steam set [参数] [值]` 设置配置参数（如 `/steam set poll_interval_sec 30`）
 - `/steam addid [SteamID]` 添加SteamID到本群监控列表
 - `/steam delid [SteamID]` 从本群监控列表删除SteamID
 - `/steam openbox [SteamID]` 查看指定SteamID的全部详细信息
 - `/steam rs` 清除所有状态并初始化
 - `/steam achievement_on` 开启本群Steam成就推送
 - `/steam achievement_off` 关闭本群Steam成就推送
-- `/steam test_game_start_render [steamid] [gameid]` 测试开始游戏图片渲染
-- `/steam test_game_end_render [steamid] [gameid] [分钟]` 测试结束游戏图片渲染
 - `/steam test_achievement_render [steamid] [gameid] [数量]` 测试成就图片渲染
+- `/steam test_game_start_render [steamid] [gameid]` 测试开始游戏图片渲染
 - `/steam清除缓存` 清除所有头像、封面图等图片缓存
 - `/steam help` 显示所有指令帮助
 
-- 例：测试开始游戏图片渲染可以使用 `/steam test_game_start_render [7656119xxxxxxxxxx] [3655150]`
 ## 依赖
 - Python 3.7+
 - httpx

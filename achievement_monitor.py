@@ -15,7 +15,30 @@ class AchievementMonitor:
         self.achievements_file = os.path.join(data_dir, "achievements_cache.json")
         self._load_achievements_cache()
         self.details_cache = {}  # (group_id, appid) -> details 缓存
+        self._load_blacklist()
     
+    def _blacklist_path(self):
+        return os.path.join(self.data_dir, "achievement_blacklist.json")
+
+    def _load_blacklist(self):
+        path = self._blacklist_path()
+        if os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    self.achievement_blacklist = set(json.load(f))
+            except Exception:
+                self.achievement_blacklist = set()
+        else:
+            self.achievement_blacklist = set()
+
+    def _save_blacklist(self):
+        path = self._blacklist_path()
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(list(self.achievement_blacklist), f, ensure_ascii=False)
+        except Exception:
+            pass
+
     def _load_achievements_cache(self):
         """加载成就缓存"""
         try:
@@ -38,8 +61,12 @@ class AchievementMonitor:
         """
         获取指定玩家在指定游戏中的已解锁成就 apiname 集合，失败自动尝试多语言（中文、英文），每种语言最多重试3次
         """
+        # 黑名单机制
+        if hasattr(self, 'achievement_blacklist') and str(appid) in self.achievement_blacklist:
+            return None
         url = "https://api.steampowered.com/ISteamUserStats/GetPlayerAchievements/v1/"
         lang_list = ["schinese", "english", "en"]
+        all_failed = True
         for lang in lang_list:
             params = {
                 "key": api_key,
@@ -62,6 +89,7 @@ class AchievementMonitor:
                                 # 检查是否有描述字段且不全为空
                                 has_desc = any(ach.get("description") for ach in achievements)
                                 if has_desc:
+                                    all_failed = False
                                     return unlocked
                                 # 否则继续尝试下一个语言
                         elif response.status_code == 401:
@@ -71,6 +99,11 @@ class AchievementMonitor:
                             print(f"获取成就数据失败: HTTP {response.status_code} (第{attempt+1}次, lang={lang})")
                 except Exception as e:
                     print(f"请求异常: {e} (第{attempt+1}次, lang={lang})")
+        # 如果全部失败，加入黑名单
+        if all_failed:
+            print(f"游戏 {appid} 已加入成就黑名单（无成就或API异常）")
+            self.achievement_blacklist.add(str(appid))
+            self._save_blacklist()
         return None
 
     async def get_achievement_details(self, group_id: str, appid: int, lang: str = "schinese", api_key: str = "", steamid: str = "") -> Dict[str, Any]:
@@ -79,6 +112,9 @@ class AchievementMonitor:
         icon/icongray 字段自动拼接为标准URL（如不是完整URL）
         若 description 为空，自动尝试多语言
         """
+        # 黑名单机制
+        if hasattr(self, 'achievement_blacklist') and str(appid) in self.achievement_blacklist:
+            return {}
         # 优先用缓存
         cache_key = (group_id, appid)
         if cache_key in self.details_cache:

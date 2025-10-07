@@ -27,7 +27,7 @@ from .superpower_util import load_abilities, get_daily_superpower  # 新增导�
     "steam_status_monitor_V2",
     "Maoer",
     "Steam状态监控插件V2版",
-    "2.1.7",
+    "2.1.8",
     "https://github.com/Maoer233/astrbot_plugin_steam_status_monitor"
 )
 class SteamStatusMonitorV2(Star):
@@ -248,11 +248,10 @@ class SteamStatusMonitorV2(Star):
         # 读取配置项，提供默认值
         self.API_KEY = self.config.get('steam_api_key', '')
         self.group_steam_ids = self.config.get('group_steam_ids', {})
-        self.POLL_INTERVAL = self.config.get('poll_interval_sec', 10)
         self.RETRY_TIMES = self.config.get('retry_times', 3)
         self.max_group_size = 20
         self.GROUP_ID = None  # 当前操作群号，指令时动态赋值
-        self.poll_interval_sec = self.config.get('poll_interval_sec', 60)  # 在线/24小时内
+        self.fixed_poll_interval = self.config.get('fixed_poll_interval', 0)  # 新增：固定轮询间隔，0为智能轮询
         self.poll_interval_mid_sec = self.config.get('poll_interval_mid_sec', 600)  # 10分钟
         self.poll_interval_long_sec = self.config.get('poll_interval_long_sec', 1800)  # 30分钟
         self.next_poll_time = {}  # {group_id: {steamid: next_time}}
@@ -718,7 +717,6 @@ class SteamStatusMonitorV2(Star):
                         self.group_start_play_times[group_id][sid] = int(time.time())
         yield event.plain_result("本群Steam状态监控启动完成喔！ヾ(≧ω≦)ゞ")
 
-    @filter.permission_type(filter.PermissionType.ADMIN)
     @filter.command("steam addid")
     async def steam_addid(self, event: AstrMessageEvent, steamid: str):
         '''添加SteamID到本群监控列表（分群），支持多个ID用逗号分隔'''
@@ -752,7 +750,6 @@ class SteamStatusMonitorV2(Star):
             msg += f"本群监控组人数已达上限（{limit}人），部分ID未添加。\n"
         yield event.plain_result(msg.strip() if msg else "未添加任何SteamID。")
 
-    @filter.permission_type(filter.PermissionType.ADMIN)
     @filter.command("steam delid")
     async def steam_delid(self, event: AstrMessageEvent, steamid: str):
         '''从本群监控组删除SteamID（分群）'''
@@ -766,7 +763,6 @@ class SteamStatusMonitorV2(Star):
         self._save_group_steam_ids()  # 新增：保存到 steam_groups.json
         yield event.plain_result(f"已为本群删除SteamID: {steamid}")
 
-    @filter.permission_type(filter.PermissionType.ADMIN)
     @filter.command("steam list")
     async def steam_list(self, event: AstrMessageEvent):
         '''列出本群所有玩家当前状态（分群）'''
@@ -787,20 +783,23 @@ class SteamStatusMonitorV2(Star):
     @filter.permission_type(filter.PermissionType.ADMIN)
     @filter.command("steam config")
     async def steam_config(self, event: AstrMessageEvent):
-        '''显示当前插件配置'''
+        '''显示当前插件配置（敏感信息已隐藏）'''
         lines = []
+        hidden_keys = {"steam_api_key", "sgdb_api_key"}
         for k, v in self.config.items():
-            lines.append(f"{k}: {v}")
+            if k in hidden_keys:
+                lines.append(f"{k}: ****** (已隐藏)")
+            else:
+                lines.append(f"{k}: {v}")
         yield event.plain_result("当前配置：\n" + "\n".join(lines))
 
     @filter.permission_type(filter.PermissionType.ADMIN)
     @filter.command("steam set")
     async def steam_set(self, event: AstrMessageEvent, key: str, value: str):
-        '''设置配置参数，立即生效（如 steam set poll_interval_sec 30）'''
+        '''设置配置参数，立即生效（如 steam set fixed_poll_interval 600）'''
         if key not in self.config:
             yield event.plain_result(f"无效参数: {key}")
             return
-        # 类型转换
         old = self.config[key]
         if isinstance(old, int):
             try:
@@ -820,10 +819,9 @@ class SteamStatusMonitorV2(Star):
         # 同步到属性
         self.API_KEY = self.config.get('steam_api_key', '')
         self.STEAM_IDS = self.config.get('steam_ids', [])
-        self.POLL_INTERVAL = self.config.get('poll_interval_sec', 10)
         self.RETRY_TIMES = self.config.get('retry_times', 3)
         self.GROUP_ID = self.config.get('notify_group_id', None)
-        # 保存配置（如支持）
+        self.fixed_poll_interval = self.config.get('fixed_poll_interval', 0)
         if hasattr(self.config, "save_config"):
             self.config.save_config()
         yield event.plain_result(f"已设置 {key} = {value}")
@@ -849,7 +847,6 @@ class SteamStatusMonitorV2(Star):
         self._save_persistent_data()  # 清空后保存
         yield event.plain_result("Steam状态监控插件已重置，所有状态已清空。")
 
-    @filter.permission_type(filter.PermissionType.ADMIN)
     @filter.command("steam help")
     async def steam_help(self, event: AstrMessageEvent):
         '''显示所有指令帮助'''
@@ -868,7 +865,6 @@ class SteamStatusMonitorV2(Star):
         )
         yield event.plain_result(help_text)
 
-    @filter.permission_type(filter.PermissionType.ADMIN)
     @filter.command("steam openbox")
     async def steam_openbox(self, event: AstrMessageEvent, steamid: str):
         '''查询并格式化展示指定SteamID的全部API返回信息（中文字段名，头像图片附加，位置ID合并，状态字段直观显示）'''
@@ -947,7 +943,7 @@ class SteamStatusMonitorV2(Star):
             font_path = self.get_font_path('NotoSansHans-Regular.otf')
             online_count = await self.get_game_online_count(gameid)
             img_bytes = await render_game_start(
-                self.data_dir, steamid, player_name, avatar_url, gameid, zh_game_name, api_key=self.API_KEY, superpower=superpower, sgdb_api_key=self.SGDB_API_KEY, font_path=font_path, sgdb_game_name=en_game_name, online_count=online_count
+                self.data_dir, steamid, player_name, avatar_url, gameid, zh_game_name, api_key=self.API_KEY, superpower=superpower, sgdb_api_key=self.SGDB_API_KEY, font_path=font_path, sgdb_game_name=en_game_name, online_count=online_count, appid=gameid
             )
             logger.info(f"[测试开始游戏渲染] render_game_start 返回类型: {type(img_bytes)} 长度: {len(img_bytes) if img_bytes else 'None'}")
             if img_bytes:
@@ -977,6 +973,7 @@ class SteamStatusMonitorV2(Star):
             player_name = status.get("name") if status else steamid
             avatar_url = status.get("avatarfull") or status.get("avatar") or "" if status else ""
             zh_game_name, en_game_name = await self.get_game_names(gameid)
+            logger.info(f"[get_game_names] zh_game_name={zh_game_name}, en_game_name={en_game_name}")  # 新增英文名输出
             from datetime import datetime
             if end_time:
                 end_time_str = end_time
@@ -1009,7 +1006,7 @@ class SteamStatusMonitorV2(Star):
             font_path = self.get_font_path('NotoSansHans-Regular.otf')
             img_bytes = await render_game_end(
                 self.data_dir, steamid, player_name, avatar_url, gameid, zh_game_name,
-                end_time_str, tip_text, duration_h, sgdb_api_key=self.SGDB_API_KEY, font_path=font_path, sgdb_game_name=en_game_name
+                end_time_str, tip_text, duration_h, sgdb_api_key=self.SGDB_API_KEY, font_path=font_path, sgdb_game_name=en_game_name, appid=gameid
             )
             msg = f"👋 {player_name} 不玩 {zh_game_name} 了\n游玩时间 {duration_h:.1f}小时"
             import tempfile
@@ -1101,10 +1098,11 @@ class SteamStatusMonitorV2(Star):
                             avatar_url = status_full.get("avatarfull") or status_full.get("avatar")
                     tip_text = info.get("tip_text") or "你已经和椅子合为一体，成为传说中的‘椅子精’了喵！"
                     zh_game_name, en_game_name = await self.get_game_names(gameid, info["game_name"])
+                    print(f"[get_game_names] zh_game_name={zh_game_name}, en_game_name={en_game_name}")
                     font_path = self.get_font_path('NotoSansHans-Regular.otf')
                     img_bytes = await render_game_end(
                         self.data_dir, sid, info["name"], avatar_url, gameid, zh_game_name,
-                        end_time_str, tip_text, duration_h, sgdb_api_key=self.SGDB_API_KEY, font_path=font_path, sgdb_game_name=en_game_name
+                        end_time_str, tip_text, duration_h, sgdb_api_key=self.SGDB_API_KEY, font_path=font_path, sgdb_game_name=en_game_name, appid=gameid
                     )
                     import tempfile
                     with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
@@ -1229,10 +1227,12 @@ class SteamStatusMonitorV2(Star):
                         superpower = self.get_today_superpower(sid)
                         font_path = self.get_font_path('NotoSansHans-Regular.otf')
                         online_count = await self.get_game_online_count(current_gameid)
+                        # 获取英文名用于 sgdb_game_name
+                        zh_game_name, en_game_name = await self.get_game_names(current_gameid, zh_game_name)
                         img_bytes = await render_game_start(
                             self.data_dir, sid, name, avatar_url, current_gameid, zh_game_name,
                             api_key=self.API_KEY, superpower=superpower, sgdb_api_key=self.SGDB_API_KEY,
-                            font_path=font_path, sgdb_game_name=zh_game_name, online_count=online_count
+                            font_path=font_path, sgdb_game_name=en_game_name, online_count=online_count, appid=gameid
                         )
                         import tempfile
                         with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
@@ -1262,37 +1262,40 @@ class SteamStatusMonitorV2(Star):
                 last_states[sid] = status
                 continue
 
-            # 智能轮询间隔设置
+            # 智能轮询间隔设置（支持固定间隔）
             next_poll = self.next_poll_time.setdefault(group_id, {})
-            poll_interval = 1800  # 默认30分钟
-            if gameid:
-                poll_interval = 60
-            elif personastate and int(personastate) > 0:
-                poll_interval = 60
-            elif lastlogoff:
-                hours_ago = (now - int(lastlogoff)) / 3600
-                if hours_ago <= 0.2:
+            import math
+            if self.fixed_poll_interval and self.fixed_poll_interval > 0:
+                poll_interval = self.fixed_poll_interval
+            else:
+                poll_interval = 1800  # 默认30分钟
+                if gameid:
                     poll_interval = 60
-                elif hours_ago <= 3:
-                    poll_interval = 300
-                elif hours_ago <= 24:
-                    poll_interval = 600
-                elif hours_ago <= 48:
-                    poll_interval = 1200
+                elif personastate and int(personastate) > 0:
+                    poll_interval = 60
+                elif lastlogoff:
+                    hours_ago = (now - int(lastlogoff)) / 3600
+                    if hours_ago <= 0.2:
+                        poll_interval = 60
+                    elif hours_ago <= 3:
+                        poll_interval = 300
+                    elif hours_ago <= 24:
+                        poll_interval = 600
+                    elif hours_ago <= 48:
+                        poll_interval = 1200
+                    else:
+                        poll_interval = 1800
                 else:
                     poll_interval = 1800
-            else:
-                poll_interval = 1800
-            # 对齐到下一个整分钟/5分钟/10分钟等
-            import math
             interval_min = poll_interval // 60
             next_time = ((now // 60) + math.ceil(interval_min)) * 60
-            # 如果是5、10、20、30分钟轮询，进一步对齐到5、10、20、30的倍数
             if interval_min in [5, 10, 20, 30]:
                 next_time = ((now // 60) // interval_min + 1) * interval_min * 60
             next_poll[sid] = next_time
             # 轮询间隔描述
-            if poll_interval == 60:
+            if self.fixed_poll_interval and self.fixed_poll_interval > 0:
+                poll_level_str = f"固定{self.fixed_poll_interval//60 if self.fixed_poll_interval>=60 else self.fixed_poll_interval}秒轮询"
+            elif poll_interval == 60:
                 poll_level_str = '1分钟轮询'
             elif poll_interval == 300:
                 poll_level_str = '5分钟轮询'
@@ -1366,10 +1369,11 @@ class SteamStatusMonitorV2(Star):
                                 else:
                                     tip_text = "你已经和椅子合为一体，成为传说中的‘椅子精’了喵！"
                                 zh_game_name, en_game_name = await self.get_game_names(gameid, info["game_name"])
+                                print(f"[get_game_names] zh_game_name={zh_game_name}, en_game_name={en_game_name}")
                                 font_path = self.get_font_path('NotoSansHans-Regular.otf')
                                 img_bytes = await render_game_end(
                                     self.data_dir, sid, info["name"], avatar_url, gameid, zh_game_name,
-                                    end_time_str, tip_text, duration_min/60 if duration_min > 0 else 0, sgdb_api_key=self.SGDB_API_KEY, font_path=font_path, sgdb_game_name=en_game_name
+                                    end_time_str, tip_text, duration_min/60 if duration_min > 0 else 0, sgdb_api_key=self.SGDB_API_KEY, font_path=font_path, sgdb_game_name=en_game_name, appid=gameid
                                 )
                                 import tempfile
                                 with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
