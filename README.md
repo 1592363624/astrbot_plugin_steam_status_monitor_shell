@@ -34,7 +34,7 @@
 ## 注意事项
 - 获取速度与是否成功获取 Steam 数据取决于网络环境。建议通过加速或魔法手段来保证稳定的查询状态。
 
-- 如果出现未知的轮询错误可以使用 /steam clear_allids 来清除所有群聊的轮询id
+- 遇到升级后，如果出现未知的轮询错误可以使用 `/steam clear_allids` 来清除所有群聊的轮询id，并重新添加
 - 修改插件参数后，如果出现重复通知的情况，请不要重载插件，而是重启astrbot。
 - 如果出现未知的无法提醒，但轮询显示正常的情况，请使用 /steam on/off 进行修复
 - 部分设备会出现2.1.7或以上版本无法正常进行信息推送的情况，需降级为2.1.6或以下版本使用。
@@ -51,10 +51,11 @@
 - `/steam alllist` 列出所有群聊分组及玩家状态
 - `/steam config` 查看当前插件配置
 - `/steam set [参数] [值]` 设置配置参数（如 `/steam set poll_interval_sec 30`）
-- `/steam addid [SteamID]` 添加SteamID到本群监控列表
+- `/steam addid [SteamID]` 添加SteamID到本群监控列表，支持英文逗号分隔多个id
 - `/steam delid [SteamID]` 从本群监控列表删除SteamID
 - `/steam openbox [SteamID]` 查看指定SteamID的全部详细信息
-- `/steam rs` 清除所有状态并初始化
+- `/steam rs` 清除所有状态并初始化（可能不生效）
+- `/steam clear_allids` 初始化清空所有群聊监控id
 - `/steam achievement_on` 开启本群Steam成就推送
 - `/steam achievement_off` 关闭本群Steam成就推送
 - `/steam test_achievement_render [steamid] [gameid] [数量]` 测试成就图片渲染
