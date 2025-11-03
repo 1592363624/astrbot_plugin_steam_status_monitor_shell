@@ -1,3 +1,4 @@
+import astrbot.core.star
 from astrbot.api.star import Star, register, Context
 from astrbot.api import logger
 from astrbot.api.event import filter, AstrMessageEvent
@@ -146,7 +147,7 @@ class SteamStatusMonitorV2(Star):
     def _ensure_fonts(self):
         """检测插件fonts目录是否有NotoSansHans系列字体，有则复制到缓存目录并缓存路径"""
         plugin_fonts_dir = os.path.join(os.path.dirname(__file__), 'fonts')
-        cache_fonts_dir = os.path.join('data', 'steam_status_monitor', 'fonts')
+        cache_fonts_dir = str(astrbot.core.star.StarTools.get_data_dir("steam_status_monitor"))
         os.makedirs(plugin_fonts_dir, exist_ok=True)
         os.makedirs(cache_fonts_dir, exist_ok=True)
         font_candidates = [
@@ -257,7 +258,7 @@ class SteamStatusMonitorV2(Star):
         self.next_poll_time = {}  # {group_id: {steamid: next_time}}
         self.detailed_poll_log = self.config.get('detailed_poll_log', True)
         # 数据持久化目录
-        self.data_dir = os.path.join("data", "steam_status_monitor")
+        self.data_dir = str(astrbot.core.star.StarTools.get_data_dir("steam_status_monitor"))
         os.makedirs(self.data_dir, exist_ok=True)
         self._load_group_steam_ids()  # 新增：优先从 steam_groups.json 加载
         self._load_persistent_data()
