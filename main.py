@@ -1,4 +1,3 @@
-import astrbot.core.star
 from astrbot.api.star import Star, register, Context
 from astrbot.api import logger
 from astrbot.api.event import filter, AstrMessageEvent
@@ -1153,6 +1152,9 @@ class SteamStatusMonitorV2(Star):
                 logger.info(f"[退出逻辑] {name} prev_gameid={prev_gameid} current_gameid={current_gameid}")
                 zh_prev_game_name = await self.get_chinese_game_name(prev_gameid, prev.get('gameextrainfo') if prev else None) if prev_gameid else (prev.get('gameextrainfo') if prev else "未知游戏")
                 duration_min = 0
+                # ✅ 防止 start_play_times[sid] 是 int
+                if not isinstance(start_play_times.get(sid), dict):
+                    start_play_times[sid] = {}
                 start_time = start_play_times[sid].get(prev_gameid, now)
                 if prev_gameid in start_play_times[sid]:
                     duration_min = (now - start_play_times[sid][prev_gameid]) / 60
