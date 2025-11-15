@@ -1,3 +1,5 @@
+import astrbot
+import astrbot.core.star
 from astrbot.api.star import Star, register, Context
 from astrbot.api import logger
 from astrbot.api.event import filter, AstrMessageEvent
@@ -27,7 +29,7 @@ from .superpower_util import load_abilities, get_daily_superpower  # 新增导�
     "steam_status_monitor_V2",
     "Shell",
     "Steam状态监控插件V2版",
-    "2.1.8",
+    "2.1.9",
     "https://github.com/1592363624/astrbot_plugin_steam_status_monitor_shell"
 )
 class SteamStatusMonitorV2(Star):
@@ -205,6 +207,34 @@ class SteamStatusMonitorV2(Star):
         except Exception as e:
             logger.warning(f"保存 steam_groups.json 失败: {e}")
 
+    def _process_steam_group_mapping(self, mapping_list):
+        """处理 SteamID 与群号映射配置项"""
+        for mapping in mapping_list:
+            if '|' in mapping:
+                try:
+                    steam_id, group_id = mapping.split('|', 1)
+                    steam_id = steam_id.strip()
+                    group_id = group_id.strip()
+                    
+                    # 验证 SteamID 格式
+                    if not steam_id.isdigit() or len(steam_id) != 17:
+                        logger.warning(f"无效的 SteamID: {steam_id}，应为17位数字")
+                        continue
+                        
+                    # 添加到对应的群组中
+                    if group_id not in self.group_steam_ids:
+                        self.group_steam_ids[group_id] = []
+                        
+                    if steam_id not in self.group_steam_ids[group_id]:
+                        self.group_steam_ids[group_id].append(steam_id)
+                        logger.info(f"已通过配置添加 SteamID {steam_id} 到群组 {group_id}")
+                    else:
+                        logger.info(f"SteamID {steam_id} 已存在于群组 {group_id} 中")
+                except Exception as e:
+                    logger.warning(f"处理映射配置失败: {mapping}, 错误: {e}")
+            else:
+                logger.warning(f"无效的映射配置格式: {mapping}，应为 'SteamID|群号'")
+
     def __init__(self, context: Context, config=None):
         # 插件运行状态标志，重启后自动丢失
         if hasattr(self, '_ssm_running') and self._ssm_running:
@@ -256,6 +286,11 @@ class SteamStatusMonitorV2(Star):
         self.poll_interval_long_sec = self.config.get('poll_interval_long_sec', 1800)  # 30分钟
         self.next_poll_time = {}  # {group_id: {steamid: next_time}}
         self.detailed_poll_log = self.config.get('detailed_poll_log', True)
+        
+        # 处理 SteamID 与群号映射配置
+        steam_group_mapping = self.config.get('steam_group_mapping', [])
+        if steam_group_mapping:
+            self._process_steam_group_mapping(steam_group_mapping)
         # 数据持久化目录
         self.data_dir = str(astrbot.core.star.StarTools.get_data_dir("steam_status_monitor"))
         os.makedirs(self.data_dir, exist_ok=True)

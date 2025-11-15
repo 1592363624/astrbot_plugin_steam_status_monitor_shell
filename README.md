@@ -24,9 +24,10 @@
 ## 快速上手
 1. 在AstrBot网页后台的配置中配置 Steam_Web_API_Key：[点击获取](https://steamcommunity.com/dev/apikey)
 2. 在AstrBot网页后台的配置中配置 SGDB_API_KEY（用于获取封面图，可选）：[点击获取](https://www.steamgriddb.com/profile/preferences/api)
-3. 在需要进行提醒的群聊输入指令：
+3. （可选）在AstrBot网页后台配置中添加 `steam_group_mapping` 配置项，格式为 `SteamID|群号`，例如：`76561198888888888|123456789`
+4. 在需要进行提醒的群聊输入指令：
    `/steam addid [Steam64位ID]`  （如：/steam addid 7656119xxxxxxxxxx）
-4. 启动轮询：
+5. 启动轮询：
    `/steam on`  启动本群 Steam 状态监控，后续状态变更会自动推送。
 
 
