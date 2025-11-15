@@ -29,7 +29,7 @@ from .superpower_util import load_abilities, get_daily_superpower  # 新增导�
     "steam_status_monitor_V2",
     "Shell",
     "Steam状态监控插件V2版",
-    "2.1.9",
+    "2.2.0",
     "https://github.com/1592363624/astrbot_plugin_steam_status_monitor_shell"
 )
 class SteamStatusMonitorV2(Star):
@@ -230,6 +230,9 @@ class SteamStatusMonitorV2(Star):
                         logger.info(f"已通过配置添加 SteamID {steam_id} 到群组 {group_id}")
                     else:
                         logger.info(f"SteamID {steam_id} 已存在于群组 {group_id} 中")
+                        
+                    # 保存更新后的配置
+                    self._save_group_steam_ids()
                 except Exception as e:
                     logger.warning(f"处理映射配置失败: {mapping}, 错误: {e}")
             else:
@@ -287,14 +290,16 @@ class SteamStatusMonitorV2(Star):
         self.next_poll_time = {}  # {group_id: {steamid: next_time}}
         self.detailed_poll_log = self.config.get('detailed_poll_log', True)
         
-        # 处理 SteamID 与群号映射配置
-        steam_group_mapping = self.config.get('steam_group_mapping', [])
-        if steam_group_mapping:
-            self._process_steam_group_mapping(steam_group_mapping)
         # 数据持久化目录
         self.data_dir = str(astrbot.core.star.StarTools.get_data_dir("steam_status_monitor"))
         os.makedirs(self.data_dir, exist_ok=True)
         self._load_group_steam_ids()  # 新增：优先从 steam_groups.json 加载
+        
+        # 处理 SteamID 与群号映射配置（在加载完 steam_groups.json 之后处理，避免被覆盖）
+        steam_group_mapping = self.config.get('steam_group_mapping', [])
+        if steam_group_mapping:
+            self._process_steam_group_mapping(steam_group_mapping)
+            
         self._load_persistent_data()
         self._load_notify_session()
         # 成就监控
