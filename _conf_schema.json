@@ -33,4 +33,11 @@
     "hint": "格式: SteamID|群号，例如: 76561198888888888|123456789",
     "default": []
   }
+  ,
+  "enable_failure_blacklist": {
+    "description": "失败加入黑名单开关",
+    "type": "bool",
+    "hint": "关闭时失败不再自动加入成就黑名单",
+    "default": false
+  }
 }

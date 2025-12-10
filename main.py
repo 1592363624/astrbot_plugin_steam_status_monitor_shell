@@ -29,7 +29,7 @@ from .superpower_util import load_abilities, get_daily_superpower  # 新增导�
     "steam_status_monitor_V2",
     "Shell",
     "Steam状态监控插件V2版",
-    "2.2.0",
+    "2.2.1",
     "https://github.com/1592363624/astrbot_plugin_steam_status_monitor_shell"
 )
 class SteamStatusMonitorV2(Star):
@@ -289,6 +289,8 @@ class SteamStatusMonitorV2(Star):
         self.poll_interval_long_sec = self.config.get('poll_interval_long_sec', 1800)  # 30分钟
         self.next_poll_time = {}  # {group_id: {steamid: next_time}}
         self.detailed_poll_log = self.config.get('detailed_poll_log', True)
+        self.config.setdefault('enable_failure_blacklist', False)
+        self.enable_failure_blacklist = self.config.get('enable_failure_blacklist', False)
         
         # 数据持久化目录
         self.data_dir = str(astrbot.core.star.StarTools.get_data_dir("steam_status_monitor"))
@@ -304,6 +306,7 @@ class SteamStatusMonitorV2(Star):
         self._load_notify_session()
         # 成就监控
         self.achievement_monitor = AchievementMonitor(self.data_dir)
+        self.achievement_monitor.enable_failure_blacklist = self.enable_failure_blacklist
         self.max_achievement_notifications = self.config.get('max_achievement_notifications', 5)
         self.achievement_poll_tasks = {}  # {(group_id, sid, gameid): asyncio.Task}
         self.achievement_snapshots = {}   # {(group_id, sid, gameid): [成就列表]}
@@ -613,7 +616,7 @@ class SteamStatusMonitorV2(Star):
                 if achievements_b is None:
                     cnt = self.achievement_fail_count.get(fail_key, 0) + 1
                     self.achievement_fail_count[fail_key] = cnt
-                    if cnt >= 10:
+                    if cnt >= 10 and self.enable_failure_blacklist:
                         self.achievement_blacklist.add(gameid)
                         logger.info(f"[成就黑名单] 游戏 {gameid} 当天累计获取失败10次，已加入黑名单")
                         break
@@ -649,7 +652,7 @@ class SteamStatusMonitorV2(Star):
         if achievements_b is None:
             cnt = self.achievement_fail_count.get(fail_key, 0) + 1
             self.achievement_fail_count[fail_key] = cnt
-            if cnt >= 10:
+            if cnt >= 10 and self.enable_failure_blacklist:
                 self.achievement_blacklist.add(gameid)
                 logger.info(f"[成就黑名单] 游戏 {gameid} 当天累计获取失败10次，已加入黑名单")
                 return
@@ -855,6 +858,9 @@ class SteamStatusMonitorV2(Star):
                 return
         elif isinstance(old, list):
             value = [x.strip() for x in value.split(",") if x.strip()]
+        elif isinstance(old, bool):
+            v = value.strip().lower()
+            value = v in {"1", "true", "yes", "on", "y"}
         self.config[key] = value
         # 同步到属性
         self.API_KEY = self.config.get('steam_api_key', '')
@@ -862,6 +868,9 @@ class SteamStatusMonitorV2(Star):
         self.RETRY_TIMES = self.config.get('retry_times', 3)
         self.GROUP_ID = self.config.get('notify_group_id', None)
         self.fixed_poll_interval = self.config.get('fixed_poll_interval', 0)
+        self.enable_failure_blacklist = self.config.get('enable_failure_blacklist', False)
+        if hasattr(self, 'achievement_monitor'):
+            self.achievement_monitor.enable_failure_blacklist = self.enable_failure_blacklist
         if hasattr(self.config, "save_config"):
             self.config.save_config()
         yield event.plain_result(f"已设置 {key} = {value}")

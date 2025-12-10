@@ -16,6 +16,7 @@ class AchievementMonitor:
         self._load_achievements_cache()
         self.details_cache = {}  # (group_id, appid) -> details 缓存
         self._load_blacklist()
+        self.enable_failure_blacklist = False
     
     def _blacklist_path(self):
         return os.path.join(self.data_dir, "achievement_blacklist.json")
@@ -101,9 +102,10 @@ class AchievementMonitor:
                     print(f"请求异常: {e} (第{attempt+1}次, lang={lang})")
         # 如果全部失败，加入黑名单
         if all_failed:
-            print(f"游戏 {appid} 已加入成就黑名单（无成就或API异常）")
-            self.achievement_blacklist.add(str(appid))
-            self._save_blacklist()
+            if self.enable_failure_blacklist:
+                print(f"游戏 {appid} 已加入成就黑名单（无成就或API异常）")
+                self.achievement_blacklist.add(str(appid))
+                self._save_blacklist()
         return None
 
     async def get_achievement_details(self, group_id: str, appid: int, lang: str = "schinese", api_key: str = "", steamid: str = "") -> Dict[str, Any]:
