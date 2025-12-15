@@ -30,7 +30,7 @@
   "steam_group_mapping": {
     "description": "SteamID与群号映射",
     "type": "list",
-    "hint": "格式: SteamID|群号，例如: 76561198888888888|123456789",
+    "hint": "格式(建议后者): SteamID|群号 或 SteamID|平台:消息类型:会话ID，例如: 76561198888888888|123456789 或 76561198888888888|aiocqhttp:GroupMessage:123456789",
     "default": []
   }
   ,

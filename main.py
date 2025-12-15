@@ -212,9 +212,19 @@ class SteamStatusMonitorV2(Star):
         for mapping in mapping_list:
             if '|' in mapping:
                 try:
-                    steam_id, group_id = mapping.split('|', 1)
+                    steam_id, group_key = mapping.split('|', 1)
                     steam_id = steam_id.strip()
-                    group_id = group_id.strip()
+                    group_key = group_key.strip()
+                    unified_session = None
+                    group_id = group_key
+                    if ':' in group_key:
+                        unified_session = group_key
+                        parts = group_key.split(':')
+                        group_id_raw = parts[-1] if parts and parts[-1] else group_key
+                        if '_' in group_id_raw:
+                            group_id = group_id_raw.split('_')[-1]
+                        else:
+                            group_id = group_id_raw
                     
                     # 验证 SteamID 格式
                     if not steam_id.isdigit() or len(steam_id) != 17:
@@ -230,6 +240,14 @@ class SteamStatusMonitorV2(Star):
                         logger.info(f"已通过配置添加 SteamID {steam_id} 到群组 {group_id}")
                     else:
                         logger.info(f"SteamID {steam_id} 已存在于群组 {group_id} 中")
+                    
+                    if unified_session:
+                        if not hasattr(self, 'notify_sessions'):
+                            self.notify_sessions = {}
+                        if group_id not in self.notify_sessions:
+                            self.notify_sessions[group_id] = unified_session
+                            logger.info(f"[SteamStatusMonitor] 通过 steam_group_mapping 绑定会话: group_id={group_id}, session={unified_session}")
+                            self._save_notify_session()
                         
                     # 保存更新后的配置
                     self._save_group_steam_ids()
@@ -295,15 +313,13 @@ class SteamStatusMonitorV2(Star):
         # 数据持久化目录
         self.data_dir = str(astrbot.core.star.StarTools.get_data_dir("steam_status_monitor"))
         os.makedirs(self.data_dir, exist_ok=True)
-        self._load_group_steam_ids()  # 新增：优先从 steam_groups.json 加载
-        
-        # 处理 SteamID 与群号映射配置（在加载完 steam_groups.json 之后处理，避免被覆盖）
+        self._load_group_steam_ids()
+        self._load_persistent_data()
+        self._load_notify_session()
+
         steam_group_mapping = self.config.get('steam_group_mapping', [])
         if steam_group_mapping:
             self._process_steam_group_mapping(steam_group_mapping)
-            
-        self._load_persistent_data()
-        self._load_notify_session()
         # 成就监控
         self.achievement_monitor = AchievementMonitor(self.data_dir)
         self.achievement_monitor.enable_failure_blacklist = self.enable_failure_blacklist
@@ -1118,7 +1134,8 @@ class SteamStatusMonitorV2(Star):
 
     async def _delayed_quit_check(self, group_id, sid, gameid):
         await asyncio.sleep(180)
-        info = self.group_pending_quit.get(sid, {}).get(gameid)
+        group_pending = self.group_pending_quit.get(group_id, {})
+        info = group_pending.get(sid, {}).get(gameid)
         if info and not info.get("notified"):
             # 新增：如果 duration_min 为 0，重试查询 2 次
             duration_min = info["duration_min"]
@@ -1177,7 +1194,8 @@ class SteamStatusMonitorV2(Star):
                 poll_task.cancel()
             self.achievement_snapshots.pop(key, None)
             self.achievement_monitor.clear_game_achievements(group_id, sid, gameid)
-            self.group_pending_quit[sid].pop(gameid, None)
+            if sid in group_pending:
+                group_pending[sid].pop(gameid, None)
 
     async def check_status_change(self, group_id, single_sid=None, status_override=None, poll_level=None):
         '''轮询检测玩家状态变更并推送通知（分群，支持单个sid）
@@ -1259,6 +1277,8 @@ class SteamStatusMonitorV2(Star):
                 task = asyncio.create_task(self._delayed_quit_check(group_id, sid, prev_gameid))
                 self._pending_quit_tasks[sid][prev_gameid] = task
                 # 不移除 start_play_times[sid][prev_gameid]，保证时长累计
+                if sid not in last_quit_times:
+                    last_quit_times[sid] = {}
                 last_quit_times[sid][prev_gameid] = now
                 last_states[sid] = status
                 continue  # 防止重复推送
