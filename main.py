@@ -445,8 +445,8 @@ class SteamStatusMonitorV2(Star):
         delay = 1
         retry = retry if retry is not None else self.RETRY_TIMES
         for attempt in range(retry):
-            async with httpx.AsyncClient(timeout=15) as client:
-                try:
+            try:
+                async with httpx.AsyncClient(timeout=15) as client:
                     resp = await client.get(url)
                     if resp.status_code != 200:
                         raise Exception(f"HTTP {resp.status_code}")
@@ -454,7 +454,8 @@ class SteamStatusMonitorV2(Star):
                         data = resp.json()
                     except Exception as je:
                         raise Exception(f"JSON解析失败: {je}")
-                    if not data.get('response') or not data['response'].get('players') or not data['response']['players']:
+                    if not data.get('response') or not data['response'].get('players') or not data['response'][
+                        'players']:
                         raise Exception("响应中无玩家数据")
                     player = data['response'].get('players')[0]
                     # 返回更多字段，包括头像
@@ -467,11 +468,19 @@ class SteamStatusMonitorV2(Star):
                         'avatarfull': player.get('avatarfull'),
                         'avatar': player.get('avatar')
                     }
-                except Exception as e:
-                    logger.warning(f"拉取 Steam 状态失败: {e} (SteamID: {steam_id}, 第{attempt+1}次重试)")
-                    if attempt < retry - 1:
-                        await asyncio.sleep(delay)
-                        delay *= 2
+            except httpx.ConnectTimeout:
+                logger.warning(f"拉取 Steam 状态失败: 连接超时 (SteamID: {steam_id}, 第{attempt + 1}次重试)")
+            except httpx.ReadTimeout:
+                logger.warning(f"拉取 Steam 状态失败: 读取超时 (SteamID: {steam_id}, 第{attempt + 1}次重试)")
+            except httpx.RequestError as e:
+                logger.warning(f"拉取 Steam 状态失败: 请求错误 {e} (SteamID: {steam_id}, 第{attempt + 1}次重试)")
+            except Exception as e:
+                logger.warning(f"拉取 Steam 状态失败: {e} (SteamID: {steam_id}, 第{attempt + 1}次重试)")
+
+            if attempt < retry - 1:
+                await asyncio.sleep(delay)
+                delay *= 2
+
         logger.error(f"SteamID {steam_id} 状态获取失败，已重试{retry}次")
         return None
 
@@ -1263,7 +1272,8 @@ class SteamStatusMonitorV2(Star):
                 # 检查是否为网络波动（3分钟内重启同一游戏）
                 if quit_info and now - quit_info["quit_time"] <= 180 and not quit_info.get("notified"):
                     # 取消延迟任务
-                    if hasattr(self, '_pending_quit_tasks') and self._pending_quit_tasks.get(sid, {}).get(current_gameid):
+                    if hasattr(self, '_pending_quit_tasks') and self._pending_quit_tasks.get(sid, {}).get(
+                            current_gameid):
                         self._pending_quit_tasks[sid][current_gameid].cancel()
                         self._pending_quit_tasks[sid].pop(current_gameid, None)
                     quit_info["notified"] = True
@@ -1276,6 +1286,9 @@ class SteamStatusMonitorV2(Star):
                     last_states[sid] = status
                     continue  # 只推送网络波动提醒，跳过后续逻辑
                 # 修复：补充开始游戏推送逻辑
+                # 确保 start_play_times[sid] 是一个字典而不是 int 或其他类型
+                if not isinstance(start_play_times.get(sid), dict):
+                    start_play_times[sid] = {}
                 start_play_times[sid][current_gameid] = now
                 msg = f"🟢【{name}】开始游玩 {zh_game_name}"
                 notify_session = getattr(self, 'notify_sessions', {}).get(group_id, None)
@@ -1296,7 +1309,8 @@ class SteamStatusMonitorV2(Star):
                         with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
                             tmp.write(img_bytes)
                             tmp_path = tmp.name
-                        await self.context.send_message(notify_session, MessageChain([Plain(msg), Image.fromFileSystem(tmp_path)]))
+                        await self.context.send_message(notify_session,
+                                                        MessageChain([Plain(msg), Image.fromFileSystem(tmp_path)]))
                     except Exception as e:
                         logger.error(f"推送开始游戏图片失败: {e}")
                         await self.context.send_message(notify_session, MessageChain([Plain(msg)]))
@@ -1305,15 +1319,20 @@ class SteamStatusMonitorV2(Star):
                     player_name = name
                     game_name = zh_game_name
                     key = (group_id, sid, current_gameid)
-                    achievements = await self.achievement_monitor.get_player_achievements(self.API_KEY, group_id, sid, current_gameid)
+                    achievements = await self.achievement_monitor.get_player_achievements(self.API_KEY, group_id, sid,
+                                                                                          current_gameid)
                     self.achievement_snapshots[key] = list(achievements) if achievements else []
                     # 新增日志：已成功获取成就列表
                     unlocked_count = len(achievements) if achievements else 0
                     # 获取总成就数量
-                    details = await self.achievement_monitor.get_achievement_details(group_id, current_gameid, lang="schinese", api_key=self.API_KEY, steamid=sid)
+                    details = await self.achievement_monitor.get_achievement_details(group_id, current_gameid,
+                                                                                     lang="schinese",
+                                                                                     api_key=self.API_KEY, steamid=sid)
                     total_count = len(details) if details else 0
-                    logger.info(f"[成就初始化] {name} 已成功获取成就列表 {unlocked_count}/{total_count} 游戏名：{zh_game_name}")
-                    poll_task = asyncio.create_task(self.achievement_periodic_check(group_id, sid, current_gameid, player_name, game_name))
+                    logger.info(
+                        f"[成就初始化] {name} 已成功获取成就列表 {unlocked_count}/{total_count} 游戏名：{zh_game_name}")
+                    poll_task = asyncio.create_task(
+                        self.achievement_periodic_check(group_id, sid, current_gameid, player_name, game_name))
                     self.achievement_poll_tasks[key] = poll_task
                 except Exception as e:
                     logger.error(f"启动成就监控任务异常: {e}")
