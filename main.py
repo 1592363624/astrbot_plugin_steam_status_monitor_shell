@@ -29,7 +29,7 @@ from .superpower_util import load_abilities, get_daily_superpower  # 新增导�
     "steam_status_monitor_V2",
     "Shell",
     "Steam状态监控插件V2版",
-    "2.2.3",
+    "2.2.4",
     "https://github.com/1592363624/astrbot_plugin_steam_status_monitor_shell"
 )
 class SteamStatusMonitorV2(Star):
@@ -328,6 +328,7 @@ class SteamStatusMonitorV2(Star):
         self.achievement_snapshots = {}   # {(group_id, sid, gameid): [成就列表]}
         self.achievement_blacklist = set()  # 新增：成就查询黑名单
         self.achievement_fail_count = {}    # 新增：成就查询失败计数
+        self._recent_start_notify = {}
         # --- 新增：重启后自动推送 ---
         self.running_groups = set()  # 正在运行的群号集合
         self.group_monitor_enabled = {}      # {group_id: bool} 监控开关
@@ -1285,6 +1286,12 @@ class SteamStatusMonitorV2(Star):
 
             # --- 开始游戏/继续游戏（仅当 gameid 变更时推送） ---
             if current_gameid not in [None, "", "0"] and current_gameid != prev_gameid:
+                recent_key = (group_id, sid, current_gameid)
+                last_start_ts = self._recent_start_notify.get(recent_key)
+                if last_start_ts and now - last_start_ts < 10:
+                    last_states[sid] = status
+                    continue
+                self._recent_start_notify[recent_key] = now
                 # 修复 KeyError: 确保 pending_quit[sid] 存在
                 if sid not in pending_quit:
                     pending_quit[sid] = {}
