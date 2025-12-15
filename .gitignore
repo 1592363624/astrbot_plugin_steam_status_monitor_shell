@@ -1,0 +1,20 @@
+# Python related
+__pycache__
+.mypy_cache
+.venv*
+.conda/
+uv.lock
+.coverage
+
+# IDE and editors
+.vscode
+.idea
+
+# Logs and temporary files
+botpy.log
+logs/
+temp
+cookies.json
+
+
+# Other
