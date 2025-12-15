@@ -1216,6 +1216,9 @@ class SteamStatusMonitorV2(Star):
                                 break
                             await asyncio.sleep(1)
                 self.achievement_monitor.clear_game_achievements(group_id, sid, prev_gameid)
+                # 修复 KeyError: 确保 pending_quit[sid] 存在
+                if sid not in pending_quit:
+                    pending_quit[sid] = {}
                 pending_quit[sid][prev_gameid] = {
                     "quit_time": now,
                     "name": name,
@@ -1253,6 +1256,9 @@ class SteamStatusMonitorV2(Star):
 
             # --- 开始游戏/继续游戏（仅当 gameid 变更时推送） ---
             if current_gameid not in [None, "", "0"] and current_gameid != prev_gameid:
+                # 修复 KeyError: 确保 pending_quit[sid] 存在
+                if sid not in pending_quit:
+                    pending_quit[sid] = {}
                 quit_info = pending_quit[sid].get(current_gameid)
                 # 检查是否为网络波动（3分钟内重启同一游戏）
                 if quit_info and now - quit_info["quit_time"] <= 180 and not quit_info.get("notified"):
@@ -1372,6 +1378,9 @@ class SteamStatusMonitorV2(Star):
             last_states[sid] = status
 
         for sid in pending_quit:
+            # 确保处理的数据结构有效
+            if not isinstance(pending_quit[sid], dict):
+                continue
             for gameid in list(pending_quit[sid].keys()):
                 info = pending_quit[sid][gameid]
                 if now - info["quit_time"] >= 180 and not info.get("notified"):
