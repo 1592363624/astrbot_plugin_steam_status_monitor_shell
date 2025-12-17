@@ -87,3 +87,10 @@ pip install httpx pillow
 ### v2.1.9
 - 新增 `steam_group_mapping` 配置项，支持通过配置文件预设 SteamID 与群号的映射关系
 - 修复配置项与命令数据不互通的问题
+
+
+## 🐔 联系作者
+
+- **反馈**：欢迎在 [GitHub Issues](https://github.com/1592363624/astrbot_plugin_zanwo_shell/issues) 提交问题或建议
+QQ群:91219736
+telegram:[巅峰阁](https://t.me/ShellDFG)
